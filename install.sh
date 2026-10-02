@@ -366,6 +366,18 @@ EOF
 chmod +x /usr/local/bin/zalp-start /usr/local/bin/zalp-stop /usr/local/bin/zalp-restart
 chmod +x /usr/local/bin/zalp-status /usr/local/bin/zalp-doctor /usr/local/bin/zalp-check
 chmod +x /usr/local/bin/zalp-restore
+
+# Консоль управления (берётся из папки с установщиком)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ -f "$SCRIPT_DIR/zalp-console.sh" ]; then
+    cp "$SCRIPT_DIR/zalp-console.sh" /usr/local/bin/zalp
+    chmod +x /usr/local/bin/zalp
+    echo -e "${GREEN}  ✓ Консоль управления установлена (команда: zalp)${NC}"
+fi
+
+# Версия продукта (для проверки обновлений)
+echo "4.1" > /opt/zalp/VERSION
+
 echo -e "${GREEN}  ✓ Скрипты управления созданы${NC}"
 
 # ── 6. Systemd + автозапуск ──
