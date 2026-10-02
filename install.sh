@@ -1,223 +1,419 @@
 #!/bin/bash
 
-# Zalp Installer Script
-# Устанавливает Zalp — систему обхода DPI + прокси для Telegram/Discord
+# ╔══════════════════════════════════════════════════════╗
+# ║           Zalp Installer v4.0 (Stable)               ║
+# ║     DPI Bypass + Doctor + Autostart                  ║
+# ╚══════════════════════════════════════════════════════╝
 
 set -e
 
-# Цвета для вывода
-RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+CYAN='\033[0;36m'
+RED='\033[0;31m'
+NC='\033[0m'
 
-echo -e "${GREEN}╔════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║      Zalp Installer v1.0               ║${NC}"
-echo -e "${GREEN}║   DPI Bypass + Proxy System            ║${NC}"
-echo -e "${GREEN}╚════════════════════════════════════════╝${NC}"
-echo ""
+LOG=/var/log/zalp-install.log
+: > "$LOG"
+exec > >(tee -a "$LOG") 2>&1
+trap 'echo -e "${RED}✗ Скрипт упал на строке $LINENO! Лог: $LOG${NC}"' ERR
 
-# Проверка прав root
+echo -e "${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}║           Zalp Installer v4.0 (Stable)               ║${NC}"
+echo -e "${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
+
 if [ "$EUID" -ne 0 ]; then
-    echo -e "${RED}✗ Этот скрипт должен запускаться с правами root (sudo)${NC}"
+    echo -e "${RED}✗ Запускать только через sudo${NC}"
     exit 1
 fi
 
-# Проверка Ubuntu/Debian
-if [ ! -f /etc/debian_version ]; then
-    echo -e "${RED}✗ Zalp поддерживает только Ubuntu/Debian системы${NC}"
-    exit 1
+# ── Функция проверки наличия продукта ──
+# Ищет ВСЕ следы установки, а не только каталог
+is_installed() {
+    local traces=0
+    
+    # 1. Каталог движка
+    [ -d /opt/zalp ] && ((traces++))
+    
+    # 2. Рабочий бинарник nfqws
+    [ -x /opt/zalp/binaries/my/nfqws ] && ((traces++))
+    
+    # 3. Системный сервис
+    [ -f /etc/systemd/system/nfqws.service ] && ((traces++))
+    
+    # 4. Команды управления zalp-*
+    [ -x /usr/local/bin/zalp-start ] && ((traces++))
+    [ -x /usr/local/bin/zalp-doctor ] && ((traces++))
+    
+    # 5. Файлы конфигурации доменов
+    [ -f /opt/zalp/domains.txt ] && ((traces++))
+    
+    # 6. Лог доктора (признак работы)
+    [ -f /var/log/zalp-doctor.log ] && ((traces++))
+    
+    # Если нашли 4+ следов — считаем установленным
+    [ $traces -ge 4 ]
+}
+
+# ── 0. Проверка на существующую установку ──
+echo -e "${YELLOW}[0/?] Проверка существующей установки...${NC}"
+if is_installed; then
+    echo -e "${YELLOW}  ⚠️  Zalp уже установлен в системе.${NC}"
+    echo -e "${YELLOW}  Чтобы переустановить — сначала запусти ${CYAN}restore.sh${NC}"
+    echo -e "${YELLOW}  (он полностью очистит систему и запустит свежую установку)${NC}"
+    exit 0
+fi
+echo -e "${GREEN}  ✓ Чистая система, начинаем установку${NC}"
+
+# ── 1. Зависимости ──
+echo -e "${YELLOW}[1/10] Установка зависимостей...${NC}"
+apt update -qq
+apt install -y -qq git build-essential make gcc zlib1g-dev libcap-dev \
+    libnetfilter-queue-dev libmnl-dev libsystemd-dev \
+    netfilter-persistent iptables curl wget openssl > /dev/null 2>&1
+echo -e "${GREEN}  ✓ Зависимости установлены${NC}"
+
+# ── 2. Движок Zalp ──
+echo -e "${YELLOW}[2/10] Установка движка Zalp...${NC}"
+if [ ! -d /opt/zalp ]; then
+    git clone https://github.com/bol-van/zapret.git /opt/zalp
+fi
+cd /opt/zalp
+
+if [ ! -x ./binaries/my/nfqws ] || [ ! -x ./binaries/my/tpws ]; then
+    echo "  Компиляция движка из исходников (1-3 минуты)..."
+    if ! make systemd > /tmp/zalp-build.log 2>&1; then
+        echo -e "${RED}✗ Ошибка сборки движка:${NC}"
+        tail -30 /tmp/zalp-build.log
+        exit 1
+    fi
 fi
 
-echo -e "${YELLOW}→ Обновление системы...${NC}"
-apt update && apt upgrade -y
-
-echo -e "${YELLOW}→ Установка зависимостей...${NC}"
-apt install -y git build-essential netfilter-persistent iptables curl wget
-
-# Создание директорий Zalp
-echo -e "${YELLOW}→ Создание структуры Zalp...${NC}"
-mkdir -p /opt/zalp
-mkdir -p /opt/zalp/configs
-mkdir -p /opt/zalp/scripts
-mkdir -p /opt/zalp/systemd
-mkdir -p /opt/zalp/docs
-
-# Клонирование оригинального zapret
-echo -e "${YELLOW}→ Установка базового Zalp...${NC}"
-cd /opt
-if [ -d "zapret" ]; then
-    echo -e "${YELLOW}  Zalp уже установлен, пропускаем клонирование...${NC}"
-else
-    git clone https://github.com/bol-van/zapret.git
+./install_bin.sh || true
+if [ ! -x ./binaries/my/nfqws ]; then
+    mkdir -p binaries/my
+    for b in nfqws tpws ip2net mdig; do
+        f=$(find . -maxdepth 2 -type f -name "$b" -perm -111 -not -path "./binaries/*" | head -1)
+        [ -n "$f" ] && cp -f "$f" binaries/my/
+    done
+    ./install_bin.sh || true
 fi
-cd zapret
-./install_bin.sh
+echo -e "${GREEN}  ✓ Движок собран${NC}"
 
-# Установка 3proxy
-echo -e "${YELLOW}→ Установка 3proxy для Telegram и Discord...${NC}"
-apt install -y 3proxy
+# ── 3. Конфигурации доменов ──
+echo -e "${YELLOW}[3/10] Применение конфигураций доменов...${NC}"
 
-# Применение конфигураций
-echo -e "${YELLOW}→ Применение конфигураций Zalp...${NC}"
-
-# Создание domains.txt
-cat > /opt/zalp/configs/domains.txt << 'EOF'
+cat > /opt/zalp/domains.txt << 'EOF'
 youtube.com
+youtubei.googleapis.com
 googlevideo.com
 ytimg.com
+ggpht.com
 googleapis.com
+google.com
+gstatic.com
+youtu.be
+youtube-nocookie.com
+googleusercontent.com
+yt3.ggpht.com
+i.ytimg.com
+s.ytimg.com
+jnn-pa.googleapis.com
 instagram.com
-threads.net
-facebook.com
-fbcdn.net
 cdninstagram.com
-twitter.com
-twimg.com
-x.com
-discord.com
-discordapp.com
-discord.gg
-discord.media
+i.instagram.com
+threads.net
+www.threads.net
+graph.instagram.com
+b.i.instagram.com
+scontent.cdninstagram.com
+static.cdninstagram.com
+lookaside.fbsbx.com
+facebook.com
+www.facebook.com
+api.instagram.com
+video.cdninstagram.com
+scontent-*.cdninstagram.com
+*.fbcdn.net
+*.fbsbx.com
+edge-star-mini-shv-*.fbcdn.net
+*.instagram.com
 EOF
 
-# Создание domains-exclude.txt
-cat > /opt/zalp/configs/domains-exclude.txt << 'EOF'
+cat > /opt/zalp/domains-exclude.txt << 'EOF'
+itstorm.ru
+prof.itstorm.ru
 1c.ru
-1c.com
-vokino.ru
+v8.1c.ru
 vokino.tv
-sberbank.ru
-gosuslugi.ru
-yandex.ru
-mail.ru
-vk.com
-ok.ru
 EOF
+echo -e "${GREEN}  ✓ Конфиги доменов применены${NC}"
 
-# Создание nfqws.conf
-cat > /opt/zalp/configs/nfqws.conf << 'EOF'
-# Zalp NFQWS Configuration
-# Оптимизирован для стриминга видео (4K, Shorts, Reels)
+# ── 4. Systemd-сервис nfqws ──
+echo -e "${YELLOW}[4/10] Создание systemd-сервиса nfqws...${NC}"
 
-nfqws --dpi-desync=fake,split --dpi-desync-split-pos=1 \
-      --dpi-desync-split-http-req=method \
-      --dpi-desync-split-tls=sniext \
-      --dpi-desync-fooling=md5sig \
-      --dpi-desync-repeats=2 \
-      --dpi-desync-ttl=6
-EOF
-
-# Создание zalp-doctor.sh
-cat > /opt/zalp/scripts/zalp-doctor.sh << 'EOF'
-#!/bin/bash
-
-# Zalp Doctor - система самолечения
-# Проверяет работу Zalp каждые 5 минут
-
-LOG="/var/log/zalp-doctor.log"
-timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-
-echo "[$timestamp] Запуск проверки Zalp..." >> $LOG
-
-# Проверка наличия интернета
-if ! ping -c 1 -W 3 8.8.8.8 > /dev/null 2>&1; then
-    echo "[$timestamp] ✗ Нет интернета!" >> $LOG
-    exit 1
-fi
-
-# Проверка правил iptables
-if ! iptables -t mangle -L | grep -q "NFQUEUE"; then
-    echo "[$timestamp] ✗ Правила NFQUEUE отсутствуют, восстановление..." >> $LOG
-    /opt/zapret/zapret-restart
-fi
-
-# Проверка 3proxy
-if ! systemctl is-active --quiet 3proxy; then
-    echo "[$timestamp] ✗ 3proxy не запущен, перезапуск..." >> $LOG
-    systemctl restart 3proxy
-fi
-
-echo "[$timestamp] ✓ Zalp работает корректно" >> $LOG
-EOF
-
-chmod +x /opt/zalp/scripts/zalp-doctor.sh
-
-# Создание systemd сервисов
-cat > /opt/zalp/systemd/zalp-doctor.service << 'EOF'
+cat > /etc/systemd/system/nfqws.service << 'EOF'
 [Unit]
-Description=Zalp Doctor - Health Check Service
+Description=Zalp DPI bypass (nfqws)
 After=network.target
 
 [Service]
-Type=oneshot
-ExecStart=/opt/zalp/scripts/zalp-doctor.sh
-User=root
-EOF
-
-cat > /opt/zalp/systemd/zalp-doctor.timer << 'EOF'
-[Unit]
-Description=Run Zalp Doctor every 5 minutes
-
-[Timer]
-OnBootSec=2min
-OnUnitActiveSec=5min
-AccuracySec=1s
+Type=simple
+ExecStartPre=/sbin/sysctl -w net.ipv4.ip_forward=1
+ExecStart=/opt/zalp/binaries/my/nfqws --qnum=1 --filter-tcp=80,443 --filter-udp=443 --hostlist=/opt/zalp/domains.txt --hostlist-exclude=/opt/zalp/domains-exclude.txt --dpi-desync=fakedsplit --dpi-desync-split-pos=1 --dpi-desync-autottl --dpi-desync-fooling=badseq --dpi-desync-repeats=2
+Restart=always
+RestartSec=3
 
 [Install]
-WantedBy=timers.target
+WantedBy=multi-user.target
 EOF
+echo -e "${GREEN}  ✓ Сервис nfqws создан${NC}"
 
-# Активация systemd сервисов
-echo -e "${YELLOW}→ Настройка автозапуска сервисов...${NC}"
-cp /opt/zalp/systemd/zalp-doctor.service /etc/systemd/system/
-cp /opt/zalp/systemd/zalp-doctor.timer /etc/systemd/system/
-systemctl daemon-reload
-systemctl enable zalp-doctor.timer
-systemctl start zalp-doctor.timer
+# ── 5. Скрипты управления zalp-* ──
+echo -e "${YELLOW}[5/10] Создание скриптов управления...${NC}"
 
-# Запуск Zalp Doctor первый раз
-echo -e "${YELLOW}→ Первый запуск Zalp Doctor...${NC}"
-/opt/zalp/scripts/zalp-doctor.sh
+# Автоопределение сетевого интерфейса
+NET_IFACE=$(ip route | grep default | awk '{print $5}' | head -1)
+[ -z "$NET_IFACE" ] && NET_IFACE="enp2s0"
 
-# Создание restore.sh
-cat > /opt/zalp/restore.sh << 'EOF'
+cat > /usr/local/bin/zalp-start << EOF
 #!/bin/bash
-
-# Zalp Restore Script
-# Восстанавливает полную конфигурацию системы
-
-echo "Восстановление Zalp..."
-
-# Применение конфигураций
-cp /opt/zalp/configs/domains.txt /opt/zapret/config/
-cp /opt/zalp/configs/domains-exclude.txt /opt/zapret/config/
-
-# Перезапуск сервисов
-systemctl restart 3proxy
-/opt/zapret/zapret-restart
-
-echo "Zalp восстановлен!"
+GREEN='\033[0;32m'
+NC='\033[0m'
+echo "🚀 Включаю Zalp DPI Bypass..."
+sudo sysctl -w net.ipv4.ip_forward=1 > /dev/null
+sudo sysctl -w net.ipv6.conf.all.forwarding=1 > /dev/null
+sudo systemctl start nfqws
+sudo iptables -t nat -F POSTROUTING
+sudo iptables -F FORWARD
+sudo iptables -t mangle -F PREROUTING
+sudo ip6tables -t mangle -F PREROUTING
+sudo ip6tables -F FORWARD
+sudo iptables -t nat -A POSTROUTING -o $NET_IFACE -j MASQUERADE
+sudo iptables -A FORWARD -j ACCEPT
+sudo iptables -t mangle -A PREROUTING -p tcp -m multiport --dports 80,443 -j NFQUEUE --queue-num 1
+sudo iptables -t mangle -A PREROUTING -p udp --dport 443 -j NFQUEUE --queue-num 1
+sudo ip6tables -t mangle -A PREROUTING -p tcp -m multiport --dports 80,443 -j NFQUEUE --queue-num 1
+sudo ip6tables -t mangle -A PREROUTING -p udp --dport 443 -j NFQUEUE --queue-num 1
+sudo netfilter-persistent save > /dev/null
+echo -e "\${GREEN}✅ Zalp активирован! (Интерфейс: $NET_IFACE).\${NC}"
 EOF
 
-chmod +x /opt/zalp/restore.sh
+cat > /usr/local/bin/zalp-stop << 'EOF'
+#!/bin/bash
+GREEN='\033[0;32m'
+NC='\033[0m'
+echo "⏹️ Выключаю Zalp DPI Bypass..."
+sudo systemctl stop nfqws
+sudo iptables -t mangle -F
+sudo ip6tables -t mangle -F
+sudo netfilter-persistent save > /dev/null
+echo -e "${GREEN}✅ Zalp деактивирован!${NC}"
+EOF
 
-# Финальная настройка
-echo -e "${YELLOW}→ Финальная настройка...${NC}"
+cat > /usr/local/bin/zalp-doctor << 'EOF'
+#!/bin/bash
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+GREEN='\033[0;32m'
+NC='\033[0m'
+LOG_FILE="/var/log/zalp-doctor.log"
+echo "$(date '+%Y-%m-%d %H:%M:%S') - Запуск Zalp Doctor" >> $LOG_FILE
+EXIT_CODE=0
 
-# Включение IP forwarding
-echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf
-sysctl -p
+if ! systemctl is-active --quiet nfqws; then
+    systemctl restart nfqws
+fi
 
+if [ "$(sysctl -n net.ipv4.ip_forward)" != "1" ]; then
+    sysctl -w net.ipv4.ip_forward=1 > /dev/null
+fi
+
+NET_IFACE=$(ip route | grep default | awk '{print $5}' | head -1)
+[ -z "$NET_IFACE" ] && NET_IFACE="enp2s0"
+
+MASQ_COUNT=$(iptables -t nat -L POSTROUTING -n | grep -c "MASQUERADE")
+FWD_ACCEPT_COUNT=$(iptables -L FORWARD -n | grep -c "ACCEPT")
+if [ "$MASQ_COUNT" -gt 1 ]; then
+    iptables -t nat -F POSTROUTING
+    iptables -t nat -A POSTROUTING -o $NET_IFACE -j MASQUERADE
+fi
+if [ "$FWD_ACCEPT_COUNT" -gt 1 ]; then
+    iptables -F FORWARD
+    iptables -A FORWARD -j ACCEPT
+fi
+
+NFQ_COUNT=$(iptables -t mangle -L PREROUTING -n | grep -c "NFQUEUE")
+if [ "$NFQ_COUNT" -lt 2 ]; then
+    iptables -t mangle -A PREROUTING -p tcp -m multiport --dports 80,443 -j NFQUEUE --queue-num 1
+    iptables -t mangle -A PREROUTING -p udp --dport 443 -j NFQUEUE --queue-num 1
+fi
+
+if ! curl -s -I -m 5 https://yandex.ru > /dev/null 2>&1 && ! curl -s -I -m 5 https://cloudflare.com > /dev/null 2>&1; then
+    nmcli con up "netplan-$NET_IFACE" > /dev/null 2>&1 || true
+    sleep 3
+    if ! curl -s -I -m 5 https://yandex.ru > /dev/null 2>&1; then
+        EXIT_CODE=1
+    fi
+fi
+
+if [ $EXIT_CODE -eq 0 ]; then
+    echo -e "${GREEN}✅ Сеть проверена.${NC}" | tee -a $LOG_FILE
+else
+    echo -e "${RED}❌ Критические проблемы.${NC}" | tee -a $LOG_FILE
+fi
+exit $EXIT_CODE
+EOF
+
+cat > /usr/local/bin/zalp-restart << 'EOF'
+#!/bin/bash
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+NC='\033[0m'
+echo "🔄 Начинаю безопасный перезапуск..."
+zalp-stop
+sudo zalp-doctor
+DOCTOR_EXIT_CODE=$?
+if [ $DOCTOR_EXIT_CODE -ne 0 ]; then
+    echo -e "${RED}❌ Ошибка Доктора. Запуск отменен.${NC}"
+    exit 1
+fi
+if ! curl -s -I -m 5 https://yandex.ru > /dev/null 2>&1; then
+    echo -e "${RED}❌ Нет интернета. Запуск отменен.${NC}"
+    exit 1
+fi
+zalp-start
+echo -e "${GREEN}🎉 Перезапуск завершен!${NC}"
+EOF
+
+cat > /usr/local/bin/zalp-check << 'EOF'
+#!/bin/bash
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+echo "========================================="
+echo "  Zalp DPI Bypass - Диагностика"
+echo "  $(date '+%Y-%m-%d %H:%M:%S')"
+echo "========================================="
+echo "🔧 1. Статус nfqws:"
+if systemctl is-active --quiet nfqws; then
+    echo -e "   ✅ ${GREEN}Активен${NC}"
+else
+    echo -e "   ❌ ${RED}Не активен${NC}"
+fi
+echo "🌐 2. IP Forwarding:"
+if [ "$(sysctl -n net.ipv4.ip_forward)" = "1" ]; then
+    echo -e "   ✅ ${GREEN}Включен${NC}"
+else
+    echo -e "   ❌ ${RED}Выключен${NC}"
+fi
+echo "🔥 3. Правила mangle:"
+RULES=$(sudo iptables -t mangle -L PREROUTING -n | grep -c "NFQUEUE")
+if [ "$RULES" -ge 2 ]; then
+    echo -e "   ✅ ${GREEN}Найдено $RULES правил${NC}"
+else
+    echo -e "   ⚠️  ${YELLOW}Найдено $RULES правил${NC}"
+fi
+echo "🔄 4. NAT:"
+NAT=$(sudo iptables -t nat -L POSTROUTING -n | grep -c "MASQUERADE")
+if [ "$NAT" -gt 0 ]; then
+    echo -e "   ✅ ${GREEN}Настроен${NC}"
+else
+    echo -e "   ❌ ${RED}Не настроен${NC}"
+fi
+echo "🌍 5. Интернет:"
+if curl -s -I -m 3 https://google.com > /dev/null 2>&1; then
+    echo -e "   ✅ ${GREEN}Работает${NC}"
+else
+    echo -e "   ❌ ${RED}Нет доступа${NC}"
+fi
+echo "========================================="
+EOF
+
+cat > /usr/local/bin/zalp-status << 'EOF'
+#!/bin/bash
 echo ""
-echo -e "${GREEN}╔════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║  ✓ Zalp успешно установлен!                ║${NC}"
-echo -e "${GREEN}╠════════════════════════════════════════════╣${NC}"
-echo -e "${GREEN}║  Следующие шаги:                           ║${NC}"
-echo -e "${GREEN}║                                            ║${NC}"
-echo -e "${GREEN}║  1. Запусти: sudo /opt/zalp/restore.sh     ║${NC}"
-echo -e "${GREEN}║  2. Перезапусти: sudo zapret-restart       ║${NC}"
-echo -e "${GREEN}║  3. Настрой прокси (см. docs/SETUP.md)     ║${NC}"
-echo -e "${GREEN}║                                            ║${NC}"
-echo -e "${GREEN}╚════════════════════════════════════════════╝${NC}"
+echo "══════════ Zalp Status ══════════"
+if sudo iptables -t mangle -L 2>/dev/null | grep -q "NFQUEUE"; then
+    echo "  🟢 Обход DPI:    Активен"
+else
+    echo "  🔴 Обход DPI:    Не запущен"
+fi
+if systemctl is-active --quiet nfqws; then
+    echo "  🟢 NFQWS:        Активен"
+else
+    echo "  🔴 NFQWS:        Не активен"
+fi
+if systemctl is-active --quiet zalp-doctor.timer 2>/dev/null || grep -q "zalp-doctor" /var/spool/cron/crontabs/root 2>/dev/null; then
+    echo "  🟢 Доктор:       Активен"
+else
+    echo "  🔴 Доктор:       Не активен"
+fi
+echo ""
+echo "  Лог доктора (последние 3):"
+tail -3 /var/log/zalp-doctor.log 2>/dev/null | sed 's/^/    /'
+echo "═════════════════════════════════"
+EOF
+
+cat > /usr/local/bin/zalp-restore << 'EOF'
+#!/bin/bash
+echo "Восстановление Zalp..."
+zalp-restart
+echo "✓ Zalp восстановлен!"
+EOF
+
+chmod +x /usr/local/bin/zalp-start /usr/local/bin/zalp-stop /usr/local/bin/zalp-restart
+chmod +x /usr/local/bin/zalp-status /usr/local/bin/zalp-doctor /usr/local/bin/zalp-check
+chmod +x /usr/local/bin/zalp-restore
+echo -e "${GREEN}  ✓ Скрипты управления созданы${NC}"
+
+# ── 6. Systemd + автозапуск ──
+echo -e "${YELLOW}[6/10] Настройка автозапуска...${NC}"
+systemctl daemon-reload
+systemctl enable -q nfqws
+
+# Cron для доктора (каждые 5 минут)
+(crontab -l 2>/dev/null | grep -v "zalp-doctor"; echo "*/5 * * * * /usr/local/bin/zalp-doctor >/dev/null 2>&1") | crontab -
+echo -e "${GREEN}  ✓ Автозапуск настроен (systemd + cron)${NC}"
+
+# ── 7. IP Forwarding ──
+echo -e "${YELLOW}[7/10] Настройка IP Forwarding...${NC}"
+grep -qxF 'net.ipv4.ip_forward=1' /etc/sysctl.conf || echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf
+grep -qxF 'net.ipv6.conf.all.forwarding=1' /etc/sysctl.conf || echo 'net.ipv6.conf.all.forwarding=1' >> /etc/sysctl.conf
+sysctl -p > /dev/null 2>&1
+echo -e "${GREEN}  ✓ IP Forwarding включен${NC}"
+
+# ── 8. Запуск сервисов ──
+echo -e "${YELLOW}[8/10] Запуск сервисов...${NC}"
+systemctl start nfqws
+/usr/local/bin/zalp-doctor || true
+/usr/local/bin/zalp-start
+echo -e "${GREEN}  ✓ Сервисы запущены${NC}"
+
+# ── 9. Финальная проверка ──
+echo -e "${YELLOW}[9/10] Финальная проверка...${NC}"
+sleep 2
+/usr/local/bin/zalp-check
+
+# ── 10. Итог ──
+echo -e "${YELLOW}[10/10] Готово!${NC}"
+echo ""
+echo -e "${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}║  ✓ Zalp v4.0 успешно установлен!                     ║${NC}"
+echo -e "${GREEN}╠══════════════════════════════════════════════════════╣${NC}"
+echo -e "${CYAN}║  Команды:                                            ║${NC}"
+echo -e "${CYAN}║    zalp-start     — запустить                        ║${NC}"
+echo -e "${CYAN}║    zalp-stop      — остановить                       ║${NC}"
+echo -e "${CYAN}║    zalp-restart   — безопасный перезапуск            ║${NC}"
+echo -e "${CYAN}║    zalp-status    — краткий статус                   ║${NC}"
+echo -e "${CYAN}║    zalp-check     — полная диагностика               ║${NC}"
+echo -e "${CYAN}║    zalp-doctor    — проверка и лечение               ║${NC}"
+echo -e "${CYAN}║    zalp-restore   — восстановление                   ║${NC}"
+echo -e "${CYAN}║                                                      ║${NC}"
+echo -e "${CYAN}║  Автозапуск: systemd + cron (каждые 5 мин)           ║${NC}"
+echo -e "${CYAN}║  Сетевой интерфейс: ${NET_IFACE}${NC}"
+echo -e "${CYAN}║                                                      ║${NC}"
+echo -e "${CYAN}║  Для переустановки: ./restore.sh                     ║${NC}"
+echo -e "${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
 echo ""
