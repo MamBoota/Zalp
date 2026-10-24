@@ -3,8 +3,6 @@
 # ║           Zalp Installer v5.0 (Unified)              ║
 # ║     DPI Bypass + Mihomo + TV Fix + Doctor            ║
 # ╚══════════════════════════════════════════════════════╝
-### 2. `install.sh` (Универсальный установщик v5.0)
-*Добавлена интеграция Mihomo и TV Fix, обновлена версия.*
 set -e
 
 GREEN='\033[0;32m'
@@ -120,27 +118,31 @@ echo -e "${YELLOW}[5/6] Настройка дополнительных моду
 INSTALL_MIHOMO="N"
 INSTALL_TVFIX="N"
 
+# Получаем абсолютный путь к директории, в которой находится текущий скрипт
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
 read -p "  Установить модуль прозрачного прокси Mihomo? (y/N): " INSTALL_MIHOMO
 if [[ "$INSTALL_MIHOMO" =~ ^[Yy]$ ]]; then
     echo "  Установка Mihomo..."
-    if [ -f "./mihomo/install_mihomo.sh" ]; then
-        chmod +x ./mihomo/install_mihomo.sh
-        ./mihomo/install_mihomo.sh || echo -e "${YELLOW}  ⚠️  Установка Mihomo прервана или требует ручного ввода URL подписки.${NC}"
+    if [ -f "$SCRIPT_DIR/mihomo/install_mihomo.sh" ]; then
+        chmod +x "$SCRIPT_DIR/mihomo/install_mihomo.sh"
+        "$SCRIPT_DIR/mihomo/install_mihomo.sh" || echo -e "${YELLOW}  ⚠️  Установка Mihomo прервана или требует ручного ввода URL подписки.${NC}"
     else
-        echo -e "${RED}  ✗ Скрипт mihomo/install_mihomo.sh не найден.${NC}"
+        echo -e "${RED}  ✗ Скрипт $SCRIPT_DIR/mihomo/install_mihomo.sh не найден.${NC}"
     fi
 fi
 
 read -p "  Установить TV Fix VPN (прозрачный VPN для Smart TV)? (y/N): " INSTALL_TVFIX
 if [[ "$INSTALL_TVFIX" =~ ^[Yy]$ ]]; then
     echo "  Установка TV Fix VPN..."
-    if [ -f "./TV_FIX_VPN/install-tv-fix-vpn.sh" ]; then
-        chmod +x ./TV_FIX_VPN/install-tv-fix-vpn.sh
-        ./TV_FIX_VPN/install-tv-fix-vpn.sh || echo -e "${YELLOW}  ⚠️  Установка TV Fix прервана.${NC}"
+    if [ -f "$SCRIPT_DIR/TV_FIX_VPN/install-tv-fix-vpn.sh" ]; then
+        chmod +x "$SCRIPT_DIR/TV_FIX_VPN/install-tv-fix-vpn.sh"
+        "$SCRIPT_DIR/TV_FIX_VPN/install-tv-fix-vpn.sh" || echo -e "${YELLOW}  ⚠️  Установка TV Fix прервана.${NC}"
     else
-        echo -e "${RED}  ✗ Скрипт TV_FIX_VPN/install-tv-fix-vpn.sh не найден.${NC}"
+        echo -e "${RED}  ✗ Скрипт $SCRIPT_DIR/TV_FIX_VPN/install-tv-fix-vpn.sh не найден.${NC}"
     fi
 fi
+
 echo -e "${GREEN}  ✓ Модули настроены${NC}"
 
 # 6. Скрипты управления и консоль
