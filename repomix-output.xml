@@ -1,10 +1,10 @@
-This file is a merged representation of a subset of the codebase, containing specifically included files and files not matching ignore patterns, combined into a single document by Repomix.
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
 
 <file_summary>
 This section contains a summary of this file.
 
 <purpose>
-This file contains a packed representation of a subset of the repository's contents that is considered the most important context.
+This file contains a packed representation of the entire repository's contents.
 It is designed to be easily consumable by AI systems for analysis, code review,
 or other automated processes.
 </purpose>
@@ -32,8 +32,8 @@ The content is organized as follows:
 <notes>
 - Some files may have been excluded based on .gitignore rules and Repomix's configuration
 - Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
-- Only files matching these patterns are included: **/*
-- Files matching these patterns are excluded: .git/**, node_modules/**, venv/**, .venv/**, __pycache__/**, dist/**, build/**, target/**, **/*.png, **/*.jpg, **/*.jpeg, **/*.gif, **/*.svg, **/*.mp4, **/*.mov, **/*.zip, **/*.tar.gz, **/*.exe, **/*.dll, **/*.so, **/*.dylib, **/*.pdf, **/*.woff, **/*.woff2, **/*.ttf
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
 - Files are sorted by Git change count (files with more changes are at the bottom)
 </notes>
 
@@ -365,1142 +365,16 @@ TV_FIX_VPN/
   install-tv-fix-vpn.sh
   README.md
   uninstall-tv-fix-vpn.sh
-.DS_Store
 .gitignore
-create_readme.sh
 install.sh
 README.md
-repomix.config.json
 restore.sh
+uninstall.sh
 zalp-console.sh
 </directory_structure>
 
 <files>
 This section contains the contents of the repository's files.
-
-<file path="mihomo/install_mihomo.sh">
-#!/bin/bash
-set -e
-echo "=========================================================="
-echo "🚀 УСТАНОВКА, НАСТРОЙКА И СОЗДАНИЕ КОМАНД УПРАВЛЕНИЯ MIHOMO"
-echo "=========================================================="
-
-# 1. ПОЛНАЯ ОЧИСТКА
-echo "[1/7] Очистка предыдущих установок..."
-systemctl stop mihomo 2>/dev/null || true
-systemctl disable mihomo 2>/dev/null || true
-rm -f /etc/systemd/system/mihomo.service
-rm -rf /opt/mihomo /etc/mihomo
-rm -f /usr/local/bin/mihomo
-rm -f /usr/local/bin/mihomo-start /usr/local/bin/mihomo-stop /usr/local/bin/mihomo-restart /usr/local/bin/mihomo-test
-systemctl daemon-reload
-
-# 2. УСТАНОВКА
-echo "[2/7] Загрузка и установка Mihomo..."
-mkdir -p /opt/mihomo /etc/mihomo/providers
-cd /opt/mihomo
-wget -q -O mihomo.gz https://github.com/MetaCubeX/mihomo/releases/download/v1.19.33/mihomo-linux-amd64-compatible-v1.19.33.gz
-gzip -d mihomo.gz
-mv mihomo /usr/local/bin/mihomo
-chmod +x /usr/local/bin/mihomo
-
-# 3. КОНФИГУРАЦИЯ (Максимальная стабильность)
-echo "[3/7] Создание конфигурации..."
-
-# 🟢 ЗАПРОС URL ПОДПИСКИ У ПОЛЬЗОВАТЕЛЯ
-echo "----------------------------------------------------------"
-echo "🔗 Введите URL вашей подписки от поставщика VPN-услуг."
-echo "   (Например: https://example.com/sub/abcdef)"
-echo "----------------------------------------------------------"
-read -p "👉 URL подписки: " SUBSCRIPTION_URL
-
-# Проверка на пустоту
-while [ -z "$SUBSCRIPTION_URL" ]; do
-    echo "❌ URL не может быть пустым! Введите ссылку заново."
-    read -p "👉 URL подписки: " SUBSCRIPTION_URL
-done
-
-echo "✅ URL принят: $SUBSCRIPTION_URL"
-echo "----------------------------------------------------------"
-
-# ⚠️ ВАЖНО: убраны кавычки у 'EOF' -> EOF, чтобы подставилась переменная $SUBSCRIPTION_URL
-cat << EOF > /etc/mihomo/config.yaml
-mixed-port: 7890
-allow-lan: true
-bind-address: "*"
-mode: rule
-log-level: warning
-ipv6: false
-unified-delay: true
-tcp-concurrent: true
-find-process-mode: off
-external-controller: 127.0.0.1:9090
-tun:
-  enable: true
-  stack: system
-  auto-route: false
-  auto-detect-interface: true
-  dns-hijack:
-  - any:53
-sniffer:
-  enable: true
-  force-dns-mapping: true
-  parse-pure-ip: true
-  override-destination: true
-  sniff:
-    TLS:
-      ports: [443, 8443]
-    HTTP:
-      ports: [80, 8080-8880]
-dns:
-  enable: true
-  listen: 0.0.0.0:1053
-  ipv6: false
-  enhanced-mode: fake-ip
-  fake-ip-range: 198.18.0.1/16
-  fake-ip-filter:
-  - '*.lan'
-  - '*.local'
-  - 'msftconnecttest.com'
-  default-nameserver:
-  - 1.1.1.1
-  - 8.8.8.8
-  nameserver:
-  - https://dns.cloudflare.com/dns-query
-  - https://dns.google/dns-query
-proxy-providers:
-  my-subscription:
-    type: http
-    url: "$SUBSCRIPTION_URL"
-    interval: 3600
-    path: ./providers/my-sub.yaml
-    health-check:
-      enable: true
-      interval: 300
-      url: http://www.gstatic.com/generate_204
-      timeout: 5000
-proxy-groups:
-  - name: "AUTO-FASTEST"
-    type: url-test
-    use:
-      - my-subscription
-    url: http://www.gstatic.com/generate_204
-    interval: 300
-    tolerance: 50
-    lazy: true
-rules:
-  - MATCH,AUTO-FASTEST
-EOF
-
-# 4. SYSTEMD СЕРВИС
-echo "[4/7] Регистрация сервиса с автоперезапуском..."
-cat << 'EOF' > /etc/systemd/system/mihomo.service
-[Unit]
-Description=Mihomo Proxy Service
-After=network.target
-[Service]
-Type=simple
-User=root
-WorkingDirectory=/etc/mihomo
-ExecStart=/usr/local/bin/mihomo -d /etc/mihomo
-Restart=always
-RestartSec=3
-LimitNOFILE=65535
-AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
-[Install]
-WantedBy=multi-user.target
-EOF
-systemctl daemon-reload
-systemctl enable mihomo
-systemctl restart mihomo
-sleep 4
-
-# 5. СОЗДАНИЕ КОМАНД УПРАВЛЕНИЯ
-echo "[5/7] Создание команд управления (mihomo-start/stop/restart/test)..."
-
-# mihomo-start
-cat << 'EOF' > /usr/local/bin/mihomo-start
-#!/bin/bash
-echo "▶️ Запуск Mihomo..."
-systemctl start mihomo
-sleep 2
-if systemctl is-active --quiet mihomo; then
-echo "✅ Mihomo успешно запущен."
-else
-echo "❌ Ошибка запуска. Проверьте: journalctl -u mihomo -n 10"
-fi
-EOF
-chmod +x /usr/local/bin/mihomo-start
-
-# mihomo-stop
-cat << 'EOF' > /usr/local/bin/mihomo-stop
-#!/bin/bash
-echo "⏹️ Остановка Mihomo..."
-systemctl stop mihomo
-if ! systemctl is-active --quiet mihomo; then
-echo "✅ Mihomo успешно остановлен."
-else
-echo "❌ Не удалось остановить сервис."
-fi
-EOF
-chmod +x /usr/local/bin/mihomo-stop
-
-# mihomo-restart
-cat << 'EOF' > /usr/local/bin/mihomo-restart
-#!/bin/bash
-echo "🔄 Перезапуск Mihomo..."
-systemctl restart mihomo
-sleep 3
-if systemctl is-active --quiet mihomo; then
-echo "✅ Mihomo успешно перезапущен."
-else
-echo "❌ Ошибка перезапуска."
-fi
-EOF
-chmod +x /usr/local/bin/mihomo-restart
-
-# mihomo-test (Расширенная диагностика)
-cat << 'EOF' > /usr/local/bin/mihomo-test
-#!/bin/bash
-echo "=========================================================="
-echo "🔍 ДИАГНОСТИКА MIHOMO"
-echo "=========================================================="
-# 1. Статус сервиса
-if systemctl is-active --quiet mihomo; then
-echo "✅ Статус сервиса: ACTIVE (Работает)"
-else
-echo "❌ Статус сервиса: INACTIVE (Не работает)"
-exit 1
-fi
-# 2. Текущий активный узел
-NODE=$(curl -s http://127.0.0.1:9090/proxies/AUTO-FASTEST 2>/dev/null | grep -o '"now":"[^"]*"' | cut -d'"' -f4)
-if [ -n "$NODE" ]; then
-echo "✅ Активный узел: $NODE"
-else
-echo "⚠️ Не удалось определить активный узел (возможно, подписка еще грузится)"
-fi
-# 3. Тест HTTP/HTTPS
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -x http://127.0.0.1:7890 http://www.gstatic.com/generate_204 -m 5)
-HTTPS_CODE=$(curl -s -o /dev/null -w "%{http_code}" -x http://127.0.0.1:7890 https://www.google.com -m 5)
-if [ "$HTTP_CODE" == "204" ] || [ "$HTTP_CODE" == "200" ]; then
-echo "✅ HTTP прокси: ОК (Код: $HTTP_CODE)"
-else
-echo "❌ HTTP прокси: СБОЙ (Код: $HTTP_CODE)"
-fi
-if [ "$HTTPS_CODE" == "200" ]; then
-echo "✅ HTTPS прокси: ОК (Код: $HTTPS_CODE)"
-else
-echo "❌ HTTPS прокси: СБОЙ (Код: $HTTPS_CODE)"
-fi
-# 4. Внешний IP
-EXT_IP=$(curl -s -x http://127.0.0.1:7890 https://api.ipify.org -m 5)
-if [[ "$EXT_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-echo "✅ Внешний IP через прокси: $EXT_IP"
-else
-echo "❌ Не удалось определить внешний IP (Получено: $EXT_IP)"
-fi
-echo "=========================================================="
-EOF
-chmod +x /usr/local/bin/mihomo-test
-
-# 6. ПЕРВИЧНЫЙ ТЕСТ ПОСЛЕ УСТАНОВКИ
-echo "[6/7] Запуск первичного тестирования..."
-mihomo-test
-
-# 7. WATCHDOG
-echo "[7/7] Установка watchdog (проверка каждые 5 минут)..."
-(crontab -l 2>/dev/null | grep -v "mihomo-watchdog") | crontab -
-echo "*/5 * * * * curl -s -m 5 -x http://127.0.0.1:7890 http://www.gstatic.com/generate_204 >/dev/null || systemctl restart mihomo" | crontab -
-
-echo "✅ Установка и настройка полностью завершены."
-echo "💡 Используй команды: mihomo-start, mihomo-stop, mihomo-restart, mihomo-test"
-echo "=========================================================="
-</file>
-
-<file path="mihomo/README.md">
-# 🚀 Mihomo Auto-Setup
-
-Автоматическая установка, настройка и управление прокси-сервером **[Mihomo](https://github.com/MetaCubeX/mihomo)** (Clash.Meta) на Linux (x86_64).
-
-Скрипты разворачивают Mihomo как системный сервис `systemd`, настраивают автовыбор самого быстрого узла из подписки, добавляют удобные команды управления и watchdog для автоматического перезапуска при сбоях.
-
----
-
-## ✨ Возможности
-
-- 🧹 Полная очистка предыдущих установок перед развёртыванием
-- 📦 Установка Mihomo `v1.19.33` (linux-amd64-compatible) в `/usr/local/bin`
-- ⚙️ Готовая конфигурация:
-  - HTTP/SOCKS5 прокси на порту `7890`
-  - TUN-режим с системным стеком
-  - DNS в режиме `fake-ip` (Cloudflare + Google DoH)
-  - Sniffer для TLS/HTTP
-  - Автоматический выбор самого быстрого узла (`url-test`)
-- 🤖 Systemd-сервис с автоперезапуском (`Restart=always`)
-- 🛠️ 4 удобные команды: `mihomo-start`, `mihomo-stop`, `mihomo-restart`, `mihomo-test`
-- 👁️ Watchdog в `cron` — проверка каждые 5 минут, автоперезапуск при падении
-
----
-
-## 📋 Требования
-
-- Linux (x86_64, glibc)
-- `root`-права (или `sudo`)
-- Утилиты: `bash`, `wget`, `gzip`, `curl`, `systemctl`, `cron`
-- Доступ в интернет для загрузки бинарника и подписки
-
----
-
-## 📥 Установка
-
-```bash
-# Скачиваем установочный скрипт
-wget https://raw.githubusercontent.com/<ваш-репо>/main/install_mihomo.sh
-
-# Делаем исполняемым и запускаем
-chmod +x install_mihomo.sh
-sudo ./install_mihomo.sh
-```
-
-Скрипт выполнит 7 этапов:
-1. Очистка старых установок
-2. Загрузка Mihomo
-3. Создание конфигурации (`/etc/mihomo/config.yaml`)
-4. Регистрация systemd-сервиса
-5. Создание команд управления
-6. Первичный тест (`mihomo-test`)
-7. Установка watchdog в cron
-
-> 💡 **Важно:** Во время установки скрипт сам остановится и запросит у вас URL подписки от вашего поставщика VPN-услуг. Просто вставьте ссылку и нажмите `Enter` — она автоматически подставится в конфигурацию.
-
----
-
-## 🎮 Команды управления
-
-После установки в системе доступны 4 глобальные команды:
-
-| Команда            | Описание                                  |
-|--------------------|-------------------------------------------|
-| `mihomo-start`     | ▶️ Запуск сервиса                         |
-| `mihomo-stop`      | ⏹️ Остановка сервиса                      |
-| `mihomo-restart`   | 🔄 Перезапуск сервиса                     |
-| `mihomo-test`      | 🔍 Диагностика: статус, активный узел, HTTP/HTTPS, внешний IP |
-
-### Пример использования
-
-```bash
-mihomo-test
-```
-
-Вывод:
-```
-==========================================================
-🔍 ДИАГНОСТИКА MIHOMO
-==========================================================
-✅ Статус сервиса: ACTIVE (Работает)
-✅ Активный узел: 🇳🇱 Netherlands 01
-✅ HTTP прокси: ОК (Код: 204)
-✅ HTTPS прокси: ОК (Код: 200)
-✅ Внешний IP через прокси: 185.xxx.xxx.xxx
-==========================================================
-```
-
----
-
-## 🧩 Структура файлов после установки
-
-| Путь                                  | Назначение                            |
-|---------------------------------------|---------------------------------------|
-| `/usr/local/bin/mihomo`               | Исполняемый файл Mihomo               |
-| `/usr/local/bin/mihomo-start`         | Команда запуска                       |
-| `/usr/local/bin/mihomo-stop`          | Команда остановки                     |
-| `/usr/local/bin/mihomo-restart`       | Команда перезапуска                   |
-| `/usr/local/bin/mihomo-test`          | Команда диагностики                   |
-| `/etc/mihomo/config.yaml`             | Основной конфиг                       |
-| `/etc/mihomo/providers/my-sub.yaml`   | Скачанная подписка (автообновление)   |
-| `/etc/systemd/system/mihomo.service`  | Systemd-юнит                          |
-| `/opt/mihomo/`                        | Рабочая директория                    |
-
-### Ключевые порты
-
-| Порт   | Назначение                         |
-|--------|------------------------------------|
-| `7890` | HTTP / SOCKS5 / Mixed прокси       |
-| `9090` | RESTful API (только `127.0.0.1`)   |
-| `1053` | Внутренний DNS-резолвер            |
-
----
-
-## 🔄 Использование прокси
-
-### В терминале (разово)
-```bash
-export https_proxy=http://127.0.0.1:7890
-export http_proxy=http://127.0.0.1:7890
-curl https://www.google.com
-```
-
-### В браузере
-Укажите прокси `127.0.0.1:7890` (SOCKS5 или HTTP) в настройках браузера или расширения (FoxyProxy, SwitchyOmega).
-
-### Через API (переключение узла)
-```bash
-# Получить текущий узел
-curl -s http://127.0.0.1:9090/proxies/AUTO-FASTEST | jq .now
-
-# Переключить на конкретный узел
-curl -X PUT http://127.0.0.1:9090/proxies/AUTO-FASTEST \
-  -H "Content-Type: application/json" \
-  -d '{"name":"🇩🇪 Germany 02"}'
-```
-
----
-
-## 🗑️ Полное удаление
-
-```bash
-wget https://raw.githubusercontent.com/<ваш-репо>/main/uninstall_mihomo.sh
-chmod +x uninstall_mihomo.sh
-sudo ./uninstall_mihomo.sh
-```
-
-Скрипт удалит:
-- systemd-сервис и его счётчики
-- бинарник Mihomo и все 4 команды управления
-- директории `/etc/mihomo` и `/opt/mihomo`
-- задачу watchdog из `cron`
-- следы в `nftables` и `iptables` (таблицы `mihomo_zalp`, `MIHOMO_TPROXY`)
-
-После выполнения система возвращается в исходное чистое состояние.
-
----
-
-## 🐛 Troubleshooting
-
-| Проблема                              | Решение                                              |
-|---------------------------------------|------------------------------------------------------|
-| `mihomo-test` показывает ❌ СБОЙ      | `journalctl -u mihomo -n 30` — смотреть логи         |
-| Подписка не грузится                  | Проверьте URL в `/etc/mihomo/config.yaml`            |
-| Сервис падает                         | Watchdog в cron автоматически его поднимет            |
-| Нет интернета после `mihomo-start`    | Проверьте, что не включён TUN + `auto-route` конфликт |
-| Нужно сменить подписку                | Отредактируйте `config.yaml` → `mihomo-restart`      |
-
-### Просмотр логов в реальном времени
-```bash
-journalctl -u mihomo -f
-```
-
-### Ручная проверка конфига
-```bash
-/usr/local/bin/mihomo -t -d /etc/mihomo
-```
-
----
-
-## 📄 Лицензия
-
-Скрипты распространяются "как есть", без каких-либо гарантий.  
-Mihomo распространяется под собственной лицензией — см. [репозиторий MetaCubeX/mihomo](https://github.com/MetaCubeX/mihomo).
-
----
-
-## 🙏 Благодарности
-
-- [MetaCubeX/mihomo](https://github.com/MetaCubeX/mihomo) — ядро прокси
-- Авторам скриптов автоматизации
-- [MamBoota] (https://github.com/MamBoota)
-</file>
-
-<file path="mihomo/uninstall_mihomo.sh">
-#!/bin/bash
-echo "🗑️ Начинаем полное удаление Mihomo и всех связанных настроек..."
-
-# 1. Остановка и отключение сервиса
-echo "[1/6] Остановка и отключение сервиса mihomo..."
-sudo systemctl stop mihomo 2>/dev/null
-sudo systemctl disable mihomo 2>/dev/null
-
-# 2. Удаление systemd юнита и сброс счетчиков ошибок
-echo "[2/6] Удаление файла сервиса..."
-sudo rm -f /etc/systemd/system/mihomo.service
-sudo systemctl daemon-reload
-sudo systemctl reset-failed 2>/dev/null
-
-# 3. Удаление бинарных файлов и команд управления
-echo "[3/6] Удаление исполняемых файлов и команд управления..."
-sudo rm -f /usr/local/bin/mihomo
-sudo rm -f /usr/local/bin/mihomo-start
-sudo rm -f /usr/local/bin/mihomo-stop
-sudo rm -f /usr/local/bin/mihomo-restart
-sudo rm -f /usr/local/bin/mihomo-test
-
-# 4. Удаление конфигураций и рабочих директорий
-echo "[4/6] Удаление конфигураций и временных файлов..."
-sudo rm -rf /etc/mihomo
-sudo rm -rf /opt/mihomo
-
-# 5. Очистка cron (удаление watchdog задачи)
-echo "[5/6] Удаление задачи watchdog из cron..."
-crontab -l 2>/dev/null | grep -v "mihomo-watchdog" | grep -v "systemctl restart mihomo" | crontab -
-
-# 6. Очистка остатков правил фаервола от наших экспериментов (nftables и iptables)
-echo "[6/6] Очистка остатков сетевых правил..."
-sudo nft delete table inet mihomo_zalp 2>/dev/null
-sudo iptables -t mangle -F MIHOMO_TPROXY 2>/dev/null
-sudo iptables -t mangle -X MIHOMO_TPROXY 2>/dev/null
-sudo iptables -t mangle -D PREROUTING -j MIHOMO_TPROXY 2>/dev/null
-
-echo ""
-echo "✅ Готово! Mihomo, все его конфиги, команды управления и следы в фаерволе полностью удалены."
-echo "Система возвращена в чистое состояние."
-</file>
-
-<file path="TV_FIX_VPN/install-tv-fix-vpn.sh">
-#!/bin/bash
-set -e
-
-echo "=========================================================="
-echo "🔧 УСТАНОВКА TV_FIX_VPN (Мост Mihomo ↔ Zalp для Smart TV)"
-echo "=========================================================="
-
-# ============================================================
-# ШАГ 1: Очистка старых версий
-# ============================================================
-echo "[1/6] Очистка предыдущих установок..."
-rm -f /usr/local/bin/fix
-rm -f /usr/local/bin/tv_fix_vpn.sh
-iptables -t nat -D PREROUTING -j TV_VPN_FIX 2>/dev/null || true
-iptables -t mangle -D PREROUTING -j TV_VPN_FIX 2>/dev/null || true
-iptables -t nat -F TV_VPN_FIX 2>/dev/null || true
-iptables -t nat -X TV_VPN_FIX 2>/dev/null || true
-iptables -t mangle -F TV_VPN_FIX 2>/dev/null || true
-iptables -t mangle -X TV_VPN_FIX 2>/dev/null || true
-(crontab -l 2>/dev/null | grep -v "tv_fix_vpn\|fix watchdog") | crontab -
-echo "   ✅ Старые правила и файлы удалены."
-
-# ============================================================
-# ШАГ 2: Добавление tproxy-port в конфиг Mihomo (если нет)
-# ============================================================
-echo "[2/6] Настройка Mihomo для TPROXY-перехвата..."
-if ! grep -q "^tproxy-port:" /etc/mihomo/config.yaml 2>/dev/null; then
-    # Вставляем tproxy-port после mixed-port
-    sudo sed -i '/^mixed-port:/a tproxy-port: 7892' /etc/mihomo/config.yaml
-    echo "    Добавлен tproxy-port: 7892 в конфиг Mihomo."
-    sudo systemctl restart mihomo
-    sleep 3
-    echo "    Mihomo перезапущен с новым портом."
-else
-    echo "   ✅ tproxy-port уже настроен."
-fi
-
-# Проверка, что порт слушается
-if ss -tlnp | grep -q ":7892 "; then
-    echo "   ✅ Порт 7892 (TPROXY) активен."
-else
-    echo "   ⚠️  Порт 7892 не слушается. Проверь: sudo mihomo-test"
-fi
-
-# ============================================================
-# ШАГ 3: Создание основного скрипта /usr/local/bin/fix
-# ============================================================
-echo "[3/6] Создание команды 'fix'..."
-
-cat << 'FIXEOF' > /usr/local/bin/fix
-#!/bin/bash
-# ==========================================================
-# TV_FIX_VPN — Мост Mihomo ↔ Zalp для Smart TV
-# Использование: fix {start|stop|restart|test}
-# ==========================================================
-
-# --- КОНФИГУРАЦИЯ ---
-TV_MAC_1="74:E6:B8:06:CD:8A"   # LG WebOS (тестовый)
-TV_MAC_2=""                     # Samsung Tizen 1 (заглушка)
-TV_MAC_3=""                     # Samsung Tizen 2 (заглушка)
-
-MIHOMO_PORT="7890"
-TPROXY_PORT="7892"
-DNS_PORT="1053"
-CHAIN="TV_VPN_FIX"
-LOG="/var/log/tv_fix_vpn.log"
-
-# --- ФУНКЦИИ ---
-
-log_msg() {
-    echo "$(date '+%Y-%m-%d %H:%M:%S') — $1" | tee -a "$LOG"
-}
-
-check_mihomo() {
-    local code
-    code=$(curl -s -o /dev/null -w "%{http_code}" -x "http://127.0.0.1:$MIHOMO_PORT" \
-           http://www.gstatic.com/generate_204 -m 5 2>/dev/null)
-    [ "$code" = "204" ] || [ "$code" = "200" ]
-}
-
-is_active() {
-    iptables -t nat -L PREROUTING -n 2>/dev/null | grep -q "$CHAIN"
-}
-
-do_start() {
-    if is_active; then
-        log_msg "️  TV_FIX_VPN уже активен."
-        return 0
-    fi
-
-    if ! check_mihomo; then
-        log_msg " Mihomo не отвечает. Старт отменён — трафик остаётся на Zalp."
-        return 1
-    fi
-
-    # Создаём цепочки
-    iptables -t nat -N $CHAIN 2>/dev/null || iptables -t nat -F $CHAIN
-    iptables -t mangle -N $CHAIN 2>/dev/null || iptables -t mangle -F $CHAIN
-
-    local macs=("$TV_MAC_1" "$TV_MAC_2" "$TV_MAC_3")
-    local count=0
-
-    for mac in "${macs[@]}"; do
-        [ -z "$mac" ] && continue
-
-        # MANGLE: блокируем QUIC и DoH ДО того, как они уйдут дальше
-        iptables -t mangle -A $CHAIN -m mac --mac-source $mac -p udp --dport 443 -j DROP
-        iptables -t mangle -A $CHAIN -m mac --mac-source $mac -p tcp --dport 853 -j DROP
-        iptables -t mangle -A $CHAIN -m mac --mac-source $mac -p udp --dport 853 -j DROP
-
-        # MANGLE: TPROXY для всего TCP (кроме 853, который уже дропнули выше)
-        iptables -t mangle -A $CHAIN -m mac --mac-source $mac -p tcp \
-            -j TPROXY --on-port $TPROXY_PORT --tproxy-mark 0x1/0x1
-
-        # MANGLE: ACCEPT — чтобы пакет НЕ дошёл до NFQWS (Zalp)
-        iptables -t mangle -A $CHAIN -m mac --mac-source $mac -j ACCEPT
-
-        # NAT: перенаправляем DNS на Mihomo
-        iptables -t nat -A $CHAIN -m mac --mac-source $mac -p udp --dport 53 \
-            -j REDIRECT --to-port $DNS_PORT
-
-        log_msg "✅ Правила добавлены для MAC: $mac"
-        ((count++))
-    done
-
-    # Вставляем цепочки в самое начало PREROUTING (приоритет над Zalp/NFQWS)
-    iptables -t mangle -I PREROUTING 1 -j $CHAIN
-    iptables -t nat -I PREROUTING 1 -j $CHAIN
-
-    # Маршруты для TPROXY (обязательны — без них ядро дропает пакеты)
-    ip rule add fwmark 0x1 table 100 2>/dev/null || true
-    ip route add local default dev lo table 100 2>/dev/null || true
-
-    log_msg "🟢 TV_FIX_VPN АКТИВИРОВАН для $count устройств. Трафик ТВ → VPN."
-    echo "🟢 TV_FIX_VPN активен. Трафик телевизоров идёт через Mihomo VPN."
-}
-
-do_stop() {
-    if ! is_active; then
-        log_msg "ℹ️  TV_FIX_VPN уже неактивен."
-        echo " TV_FIX_VPN неактивен. Трафик ТВ обрабатывается Zalp."
-        return 0
-    fi
-
-    iptables -t nat -D PREROUTING -j $CHAIN 2>/dev/null
-    iptables -t mangle -D PREROUTING -j $CHAIN 2>/dev/null
-    iptables -t nat -F $CHAIN 2>/dev/null
-    iptables -t nat -X $CHAIN 2>/dev/null
-    iptables -t mangle -F $CHAIN 2>/dev/null
-    iptables -t mangle -X $CHAIN 2>/dev/null
-
-    ip rule del fwmark 0x1 table 100 2>/dev/null || true
-    ip route del local default dev lo table 100 2>/dev/null || true
-
-    log_msg "🔴 TV_FIX_VPN ОТКЛЮЧЁН. Трафик ТВ делегирован обратно Zalp."
-    echo "🔴 TV_FIX_VPN отключён. Трафик ТВ вернулся к Zalp."
-}
-
-do_restart() {
-    log_msg " Перезапуск TV_FIX_VPN..."
-    do_stop
-    sleep 1
-    do_start
-}
-
-do_test() {
-    echo "=========================================================="
-    echo "🔍 ДИАГНОСТИКА TV_FIX_VPN"
-    echo "=========================================================="
-
-    # 1. Статус патча
-    if is_active; then
-        echo "🟢 TV_FIX_VPN: АКТИВЕН"
-    else
-        echo " TV_FIX_VPN: НЕАКТИВЕН (трафик ТВ → Zalp)"
-    fi
-
-    # 2. Статус Mihomo
-    echo ""
-    echo "── Mihomo ──"
-    if systemctl is-active --quiet mihomo; then
-        echo "✅ Сервис Mihomo: активен"
-    else
-        echo "❌ Сервис Mihomo: неактивен"
-    fi
-
-    if check_mihomo; then
-        echo "✅ Прокси Mihomo: отвечает"
-    else
-        echo "❌ Прокси Mihomo: не отвечает"
-    fi
-
-    local node
-    node=$(curl -s http://127.0.0.1:9090/proxies/AUTO-FASTEST 2>/dev/null \
-           | grep -o '"now":"[^"]*"' | cut -d'"' -f4)
-    [ -n "$node" ] && echo "   Активный узел: $node"
-
-    # 3. Порты
-    echo ""
-    echo "── Порты ──"
-    for p in 7890 7892 1053; do
-        if ss -tlnp | grep -q ":$p "; then
-            echo "✅ Порт $p: слушается"
-        else
-            echo "❌ Порт $p: НЕ слушается"
-        fi
-    done
-
-    # 4. Правила iptables
-    echo ""
-    echo "── Правила iptables (TV_VPN_FIX) ──"
-    iptables -t nat -L $CHAIN -n -v 2>/dev/null || echo "   (цепочка nat не создана)"
-    echo ""
-    iptables -t mangle -L $CHAIN -n -v 2>/dev/null || echo "   (цепочка mangle не создана)"
-
-    # 5. Маршруты TPROXY
-    echo ""
-    echo "── Маршруты TPROXY ──"
-    ip rule list | grep "0x1" || echo "   (правило fwmark 0x1 отсутствует)"
-    ip route show table 100 2>/dev/null || echo "   (таблица 100 пуста)"
-
-    # 6. Список ТВ
-    echo ""
-    echo "── Зарегистрированные устройства ──"
-    local i=1
-    for mac in "$TV_MAC_1" "$TV_MAC_2" "$TV_MAC_3"; do
-        if [ -n "$mac" ]; then
-            echo "   ТВ#$i: $mac ✅"
-        else
-            echo "   ТВ#$i: (не настроен)"
-        fi
-        ((i++))
-    done
-
-    echo "=========================================================="
-}
-
-# --- ТОЧКА ВХОДА ---
-case "$1" in
-    start)   do_start ;;
-    stop)    do_stop ;;
-    restart) do_restart ;;
-    test)    do_test ;;
-    watchdog)
-        # Для cron: автопереключение при падении/восстановлении Mihomo
-        if is_active; then
-            if ! check_mihomo; then
-                log_msg "⚠️  Mihomo упал — отключаю TV_FIX_VPN (fallback на Zalp)"
-                do_stop
-            fi
-        else
-            if check_mihomo; then
-                log_msg "✅ Mihomo восстановлен — включаю TV_FIX_VPN"
-                do_start
-            fi
-        fi
-        ;;
-    *)
-        echo "Использование: fix {start|stop|restart|test}"
-        echo ""
-        echo "  start   — перехватить трафик ТВ через VPN"
-        echo "  stop    — вернуть трафик ТВ к Zalp"
-        echo "  restart — перезапустить патч"
-        echo "  test    — полная диагностика"
-        exit 1
-        ;;
-esac
-FIXEOF
-
-chmod +x /usr/local/bin/fix
-echo "   ✅ Команда 'fix' установлена в /usr/local/bin/fix"
-
-# ============================================================
-# ШАГ 4: Watchdog в cron (каждые 3 минуты)
-# ============================================================
-echo "[4/6] Установка watchdog (авто-fallback при сбое VPN)..."
-(crontab -l 2>/dev/null | grep -v "fix watchdog") | crontab -
-(crontab -l 2>/dev/null; echo "*/3 * * * * /usr/local/bin/fix watchdog >/dev/null 2>&1") | crontab -
-echo "   ✅ Watchdog установлен (проверка каждые 3 минуты)."
-
-# ============================================================
-# ШАГ 5: Первичный запуск и тест
-# ============================================================
-echo "[5/6] Первичный запуск..."
-fix start
-
-echo ""
-echo "[6/6] Диагностика..."
-fix test
-
-echo ""
-echo "=========================================================="
-echo "✅ УСТАНОВКА TV_FIX_VPN ЗАВЕРШЕНА"
-echo "=========================================================="
-echo ""
-echo "Доступные команды:"
-echo "  fix start    — включить перехват ТВ через VPN"
-echo "  fix stop     — отключить, вернуть трафик к Zalp"
-echo "  fix restart  — перезапустить патч"
-echo "  fix test     — диагностика"
-echo ""
-echo "Лог: /var/log/tv_fix_vpn.log"
-echo "=========================================================="
-</file>
-
-<file path="TV_FIX_VPN/README.md">
-# 📺 TV_FIX_VPN — Прозрачный VPN для Smart TV
-
-Надстройка над **Mihomo**, которая перехватывает трафик Smart TV по MAC-адресу и прозрачно направляет его через VPN-прокси. Если VPN падает — трафик автоматически возвращается к **Zalp** (fallback).
-
-Решение построено на **TPROXY** + **iptables** и работает без настройки прокси на самом телевизоре.
-
----
-
-## ✨ Возможности
-
-- 🎯 Прозрачный перехват трафика ТВ по MAC-адресу (без настроек на самом TV)
-- 🔒 Блокировка QUIC и DoH (UDP 443, TCP/UDP 853) — чтобы ТВ не обходил прокси
-- 🌐 Перенаправление DNS-запросов ТВ на внутренний резолвер Mihomo (порт 1053)
-- 🔄 Автоматический fallback на Zalp при падении VPN
-- 👁️ Watchdog в `cron` — проверка каждые 3 минуты
-- 📊 Встроенная диагностика (`fix test`) — статус, порты, правила, маршруты
-- 📝 Логирование всех событий в `/var/log/tv_fix_vpn.log`
-- 🧹 Полная очистка при удалении — система возвращается в исходное состояние
-
----
-
-## 📋 Требования
-
-- **Установленный и работающий Mihomo** (см. [install_mihomo.sh](install_mihomo.sh))
-- Linux с поддержкой `iptables`, `TPROXY`, `ip rule`
-- `root`-права (или `sudo`)
-- Утилиты: `bash`, `curl`, `iptables`, `ss`, `ip`, `systemctl`, `cron`
-- Smart TV подключён к той же сети (LAN), что и сервер
-
----
-
-## ⚙️ Настройка перед установкой
-
-Перед запуском скрипта **обязательно** откройте `install-tv-fix-vpn.sh` и пропишите MAC-адреса своих телевизоров:
-
-```bash
-TV_MAC_1="00:00:00:00:00:00"   # LG WebOS пример
-TV_MAC_2="AA:BB:CC:DD:EE:FF"   # Samsung Tizen 1 пример
-TV_MAC_3="11:22:33:44:55:66"   # Samsung Tizen 2 пример
-```
-
-> 💡 MAC-адрес можно узнать в веб-интерфейсе роутера или в настройках самого ТВ (Сеть → Состояние → MAC-адрес).
-
----
-
-## 📥 Установка
-
-```bash
-# Скачиваем установочный скрипт
-wget https://raw.githubusercontent.com/<ваш-репо>/main/install-tv-fix-vpn.sh
-
-# Делаем исполняемым и запускаем
-chmod +x install-tv-fix-vpn.sh
-sudo ./install-tv-fix-vpn.sh
-```
-
-Скрипт выполнит 6 этапов:
-1. Очистка старых версий TV_FIX_VPN
-2. Добавление `tproxy-port: 7892` в конфиг Mihomo и его перезапуск
-3. Создание команды `fix` в `/usr/local/bin/fix`
-4. Установка watchdog в `cron` (каждые 3 минуты)
-5. Первичный запуск (`fix start`)
-6. Диагностика (`fix test`)
-
----
-
-## 🎮 Команды управления
-
-После установки доступна глобальная команда `fix`:
-
-| Команда        | Описание                                           |
-|----------------|----------------------------------------------------|
-| `fix start`    | 🟢 Включить перехват трафика ТВ через VPN          |
-| `fix stop`     | 🔴 Отключить перехват, вернуть трафик к Zalp       |
-| `fix restart`  | 🔄 Перезапустить патч (stop → start)               |
-| `fix test`     | 🔍 Полная диагностика                              |
-| `fix watchdog` | 👁️ Внутренняя команда для cron (авто-fallback)    |
-
-### Пример использования
-
-```bash
-# Включить VPN для ТВ
-sudo fix start
-
-# Проверить статус
-sudo fix test
-```
-
-Вывод `fix test`:
-```
-==========================================================
-🔍 ДИАГНОСТИКА TV_FIX_VPN
-==========================================================
-🟢 TV_FIX_VPN: АКТИВЕН
-
-── Mihomo ──
-✅ Сервис Mihomo: активен
-✅ Прокси Mihomo: отвечает
-   Активный узел: 🇳🇱 Netherlands 01
-
-── Порты ──
-✅ Порт 7890: слушается
-✅ Порт 7892: слушается
-✅ Порт 1053: слушается
-
-── Правила iptables (TV_VPN_FIX) ──
-Chain TV_VPN_FIX (2 references)
- pkts bytes target     prot opt in     out     source               destination
-    0     0 DROP       udp  --  *      *       0.0.0.0/0            0.0.0.0/0            MAC 74:E6:B8:06:CD:8A udp dpt:443
-   12   720 TPROXY     tcp  --  *      *       0.0.0.0/0            0.0.0.0/0            MAC 74:E6:B8:06:CD:8A TPROXY redirect 127.0.0.1:7892 mark 0x1/0x1
-   45  3600 ACCEPT     all  --  *      *       0.0.0.0/0            0.0.0.0/0            MAC 74:E6:B8:06:CD:8A
-
-── Маршруты TPROXY ──
-1:  from all fwmark 0x1 lookup 100
-local default dev lo scope host table 100
-
-── Зарегистрированные устройства ──
-   ТВ#1: 74:E6:B8:06:CD:8A ✅
-   ТВ#2: (не настроен)
-   ТВ#3: (не настроен)
-==========================================================
-```
-
----
-
-## 🧩 Как это работает
-
-```
-┌──────────────┐     ┌─────────────────────────────────────────────┐
-│   Smart TV   │────▶│              Linux-сервер                   │
-│  (по MAC)    │     │                                             │
-└──────────────┘     │  iptables PREROUTING                        │
-                     │      ↓                                      │
-                     │  TV_VPN_FIX (mangle)                        │
-                     │      ├─ DROP QUIC/DoH (чтобы не обходили)   │
-                     │      ├─ TPROXY → 127.0.0.1:7892 (Mihomo)    │
-                     │      └─ ACCEPT (не отдаём Zalp/NFQWS)       │
-                     │                                             │
-                     │  TV_VPN_FIX (nat)                           │
-                     │      └─ REDIRECT DNS :53 → :1053 (Mihomo)   │
-                     │                                             │
-                     │  Mihomo (TPROXY mode)                       │
-                     │      ↓                                      │
-                     │  VPN-сервер (из подписки)                   │
-                     └─────────────────────────────────────────────┘
-```
-
-**Ключевые моменты:**
-- **TPROXY** — прозрачное проксирование на уровне ядра, без NAT (сохраняются оригинальные IP)
-- **fwmark 0x1** — метка для policy routing, чтобы TPROXY-пакеты возвращались в Mihomo
-- **DROP QUIC/DoH** — блокируем UDP 443 и TCP/UDP 853, иначе ТВ будет шифровать DNS в обход прокси
-- **Приоритет над Zalp** — цепочка `TV_VPN_FIX` вставляется первой в `PREROUTING`
-
----
-
-## 🔄 Автоматический fallback
-
-Watchdog в `cron` каждые 3 минуты:
-- Проверяет, отвечает ли Mihomo (`curl` через прокси)
-- Если Mihomo **упал** → `fix stop` → трафик ТВ возвращается к Zalp
-- Если Mihomo **восстановился** → `fix start` → трафик снова идёт через VPN
-
-Это гарантирует, что ТВ **никогда не останется без интернета**, даже если VPN временно недоступен.
-
----
-
-## 📂 Структура файлов после установки
-
-| Путь                           | Назначение                                |
-|--------------------------------|-------------------------------------------|
-| `/usr/local/bin/fix`           | Команда управления TV_FIX_VPN             |
-| `/etc/mihomo/config.yaml`      | Конфиг Mihomo (добавлен `tproxy-port`)    |
-| `/var/log/tv_fix_vpn.log`      | Лог событий патча                         |
-
-### Используемые порты
-
-| Порт   | Назначение                                     |
-|--------|------------------------------------------------|
-| `7890` | HTTP/SOCKS5 прокси Mihomo (из базовой установки) |
-| `7892` | TPROXY-порт для прозрачного перехвата           |
-| `1053` | Внутренний DNS-резолвер Mihomo                  |
-
----
-
-## 🗑️ Полное удаление
-
-```bash
-wget https://raw.githubusercontent.com/<ваш-репо>/main/uninstall-tv-fix-vpn.sh
-chmod +x uninstall-tv-fix-vpn.sh
-sudo ./uninstall-tv-fix-vpn.sh
-```
-
-Скрипт удалит:
-- Правила iptables и цепочки `TV_VPN_FIX` (nat + mangle)
-- Маршруты TPROXY (`ip rule` и `table 100`)
-- Команду `fix` и вспомогательные скрипты
-- Задачу watchdog из `cron`
-- Лог-файл `/var/log/tv_fix_vpn.log`
-
-> ⚠️ **Mihomo при этом не удаляется** — он продолжает работать для ручного использования.  
-> Чтобы удалить и Mihomo, запустите отдельно `uninstall_mihomo.sh`.
-
----
-
-## 🐛 Troubleshooting
-
-| Проблема                                      | Решение                                                    |
-|-----------------------------------------------|------------------------------------------------------------|
-| `fix test` показывает ❌ Порт 7892 не слушается | Проверьте, что `tproxy-port: 7892` есть в `/etc/mihomo/config.yaml` и перезапустите: `sudo systemctl restart mihomo` |
-| Трафик ТВ не идёт через VPN                   | Убедитесь, что MAC-адрес ТВ совпадает с прописанным в скрипте |
-| ТВ не грузит YouTube/приложения               | Проверьте, что QUIC/DoH блокируются (должны быть правила `DROP` в `fix test`) |
-| После `fix start` пропал интернет у ТВ        | Проверьте, что Mihomo работает: `sudo mihomo-test`         |
-| Watchdog не срабатывает                       | Проверьте cron: `sudo crontab -l`                          |
-
-### Просмотр логов в реальном времени
-```bash
-sudo tail -f /var/log/tv_fix_vpn.log
-```
-
-### Ручная проверка правил iptables
-```bash
-sudo iptables -t mangle -L TV_VPN_FIX -n -v
-sudo iptables -t nat -L TV_VPN_FIX -n -v
-```
-
-### Проверка маршрутов TPROXY
-```bash
-ip rule list | grep 0x1
-ip route show table 100
-```
-
----
-
-## 🔗 Связанные проекты
-
-- [install_mihomo.sh](install_mihomo.sh) — базовая установка Mihomo (обязательна)
-- [uninstall_mihomo.sh](uninstall_mihomo.sh) — полное удаление Mihomo
-
----
-
-## 📄 Лицензия
-
-Скрипты распространяются "как есть", без каких-либо гарантий.
-
----
-
-## 🙏 Благодарности
-
-- [MetaCubeX/mihomo](https://github.com/MetaCubeX/mihomo) — ядро прокси
-- Документации Netfilter по TPROXY
-- Авторам скриптов автоматизации
-- [MamBoota] (https://github.com/MamBoota)
-</file>
-
-<file path="TV_FIX_VPN/uninstall-tv-fix-vpn.sh">
-#!/bin/bash
-echo "🗑️ Полное удаление TV_FIX_VPN..."
-
-# 1. Остановка и очистка правил iptables
-echo "[1/5] Очистка правил iptables..."
-iptables -t nat -D PREROUTING -j TV_VPN_FIX 2>/dev/null || true
-iptables -t mangle -D PREROUTING -j TV_VPN_FIX 2>/dev/null || true
-
-# 2. Удаление цепочек TV_VPN_FIX
-echo "[2/5] Удаление цепочек TV_VPN_FIX..."
-iptables -t nat -F TV_VPN_FIX 2>/dev/null || true
-iptables -t nat -X TV_VPN_FIX 2>/dev/null || true
-iptables -t mangle -F TV_VPN_FIX 2>/dev/null || true
-iptables -t mangle -X TV_VPN_FIX 2>/dev/null || true
-
-# 3. Очистка маршрутов TPROXY
-echo "[3/5] Удаление маршрутов TPROXY..."
-ip rule del fwmark 0x1 table 100 2>/dev/null || true
-ip route del local default dev lo table 100 2>/dev/null || true
-
-# 4. Удаление команды fix и скриптов
-echo "[4/5] Удаление команды 'fix'..."
-rm -f /usr/local/bin/fix
-rm -f /usr/local/bin/tv_fix_vpn.sh
-
-# 5. Удаление watchdog из cron
-echo "[5/5] Удаление watchdog из cron..."
-(crontab -l 2>/dev/null | grep -v "fix watchdog" | grep -v "tv_fix_vpn") | crontab -
-
-# Удаление лог-файла
-rm -f /var/log/tv_fix_vpn.log
-
-echo ""
-echo "✅ TV_FIX_VPN полностью удален."
-echo "   - Правила iptables очищены"
-echo "   - Маршруты TPROXY удалены"
-echo "   - Команда 'fix' удалена"
-echo "   - Watchdog отключен"
-echo ""
-echo "ℹ️  Трафик телевизоров теперь обрабатывается Zalp."
-echo "ℹ️  Mihomo продолжает работать независимо (для ручного использования)."
-</file>
-
-<file path="repomix.config.json">
-{
-  "output": {
-    "style": "xml",
-    "filePath": "repomix-output.xml"
-  },
-  "include": ["**/*"],
-  "ignore": {
-    "useGitignore": false,
-    "useDefaultPatterns": false,
-    "customPatterns": [
-      ".git/**",
-      "node_modules/**",
-      "venv/**",
-      ".venv/**",
-      "__pycache__/**",
-      "dist/**",
-      "build/**",
-      "target/**",
-      "**/*.png",
-      "**/*.jpg",
-      "**/*.jpeg",
-      "**/*.gif",
-      "**/*.svg",
-      "**/*.mp4",
-      "**/*.mov",
-      "**/*.zip",
-      "**/*.tar.gz",
-      "**/*.exe",
-      "**/*.dll",
-      "**/*.so",
-      "**/*.dylib",
-      "**/*.pdf",
-      "**/*.woff",
-      "**/*.woff2",
-      "**/*.ttf"
-    ]
-  }
-}
-</file>
 
 <file path="CopyOrigZapret/common/base.sh">
 which()
@@ -58442,14 +57316,1095 @@ esac
 exitp 0
 </file>
 
-<file path="restore.sh">
+<file path="mihomo/install_mihomo.sh">
 #!/bin/bash
+set -e
+echo "=========================================================="
+echo "🚀 УСТАНОВКА, НАСТРОЙКА И СОЗДАНИЕ КОМАНД УПРАВЛЕНИЯ MIHOMO"
+echo "=========================================================="
 
+# 1. ПОЛНАЯ ОЧИСТКА
+echo "[1/7] Очистка предыдущих установок..."
+systemctl stop mihomo 2>/dev/null || true
+systemctl disable mihomo 2>/dev/null || true
+rm -f /etc/systemd/system/mihomo.service
+rm -rf /opt/mihomo /etc/mihomo
+rm -f /usr/local/bin/mihomo
+rm -f /usr/local/bin/mihomo-start /usr/local/bin/mihomo-stop /usr/local/bin/mihomo-restart /usr/local/bin/mihomo-test
+systemctl daemon-reload
+
+# 2. УСТАНОВКА
+echo "[2/7] Загрузка и установка Mihomo..."
+mkdir -p /opt/mihomo /etc/mihomo/providers
+cd /opt/mihomo
+wget -q -O mihomo.gz https://github.com/MetaCubeX/mihomo/releases/download/v1.19.33/mihomo-linux-amd64-compatible-v1.19.33.gz
+gzip -d mihomo.gz
+mv mihomo /usr/local/bin/mihomo
+chmod +x /usr/local/bin/mihomo
+
+# 3. КОНФИГУРАЦИЯ (Максимальная стабильность)
+echo "[3/7] Создание конфигурации..."
+
+# 🟢 ЗАПРОС URL ПОДПИСКИ У ПОЛЬЗОВАТЕЛЯ
+echo "----------------------------------------------------------"
+echo "🔗 Введите URL вашей подписки от поставщика VPN-услуг."
+echo "   (Например: https://example.com/sub/abcdef)"
+echo "----------------------------------------------------------"
+read -p "👉 URL подписки: " SUBSCRIPTION_URL
+
+# Проверка на пустоту
+while [ -z "$SUBSCRIPTION_URL" ]; do
+    echo "❌ URL не может быть пустым! Введите ссылку заново."
+    read -p "👉 URL подписки: " SUBSCRIPTION_URL
+done
+
+echo "✅ URL принят: $SUBSCRIPTION_URL"
+echo "----------------------------------------------------------"
+
+# ⚠️ ВАЖНО: убраны кавычки у 'EOF' -> EOF, чтобы подставилась переменная $SUBSCRIPTION_URL
+cat << EOF > /etc/mihomo/config.yaml
+mixed-port: 7890
+allow-lan: true
+bind-address: "*"
+mode: rule
+log-level: warning
+ipv6: false
+unified-delay: true
+tcp-concurrent: true
+find-process-mode: off
+external-controller: 127.0.0.1:9090
+tun:
+  enable: true
+  stack: system
+  auto-route: false
+  auto-detect-interface: true
+  dns-hijack:
+  - any:53
+sniffer:
+  enable: true
+  force-dns-mapping: true
+  parse-pure-ip: true
+  override-destination: true
+  sniff:
+    TLS:
+      ports: [443, 8443]
+    HTTP:
+      ports: [80, 8080-8880]
+dns:
+  enable: true
+  listen: 0.0.0.0:1053
+  ipv6: false
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter:
+  - '*.lan'
+  - '*.local'
+  - 'msftconnecttest.com'
+  default-nameserver:
+  - 1.1.1.1
+  - 8.8.8.8
+  nameserver:
+  - https://dns.cloudflare.com/dns-query
+  - https://dns.google/dns-query
+proxy-providers:
+  my-subscription:
+    type: http
+    url: "$SUBSCRIPTION_URL"
+    interval: 3600
+    path: ./providers/my-sub.yaml
+    health-check:
+      enable: true
+      interval: 300
+      url: http://www.gstatic.com/generate_204
+      timeout: 5000
+proxy-groups:
+  - name: "AUTO-FASTEST"
+    type: url-test
+    use:
+      - my-subscription
+    url: http://www.gstatic.com/generate_204
+    interval: 300
+    tolerance: 50
+    lazy: true
+rules:
+  - MATCH,AUTO-FASTEST
+EOF
+
+# 4. SYSTEMD СЕРВИС
+echo "[4/7] Регистрация сервиса с автоперезапуском..."
+cat << 'EOF' > /etc/systemd/system/mihomo.service
+[Unit]
+Description=Mihomo Proxy Service
+After=network.target
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/etc/mihomo
+ExecStart=/usr/local/bin/mihomo -d /etc/mihomo
+Restart=always
+RestartSec=3
+LimitNOFILE=65535
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload
+systemctl enable mihomo
+systemctl restart mihomo
+sleep 4
+
+# 5. СОЗДАНИЕ КОМАНД УПРАВЛЕНИЯ
+echo "[5/7] Создание команд управления (mihomo-start/stop/restart/test)..."
+
+# mihomo-start
+cat << 'EOF' > /usr/local/bin/mihomo-start
+#!/bin/bash
+echo "▶️ Запуск Mihomo..."
+systemctl start mihomo
+sleep 2
+if systemctl is-active --quiet mihomo; then
+echo "✅ Mihomo успешно запущен."
+else
+echo "❌ Ошибка запуска. Проверьте: journalctl -u mihomo -n 10"
+fi
+EOF
+chmod +x /usr/local/bin/mihomo-start
+
+# mihomo-stop
+cat << 'EOF' > /usr/local/bin/mihomo-stop
+#!/bin/bash
+echo "⏹️ Остановка Mihomo..."
+systemctl stop mihomo
+if ! systemctl is-active --quiet mihomo; then
+echo "✅ Mihomo успешно остановлен."
+else
+echo "❌ Не удалось остановить сервис."
+fi
+EOF
+chmod +x /usr/local/bin/mihomo-stop
+
+# mihomo-restart
+cat << 'EOF' > /usr/local/bin/mihomo-restart
+#!/bin/bash
+echo "🔄 Перезапуск Mihomo..."
+systemctl restart mihomo
+sleep 3
+if systemctl is-active --quiet mihomo; then
+echo "✅ Mihomo успешно перезапущен."
+else
+echo "❌ Ошибка перезапуска."
+fi
+EOF
+chmod +x /usr/local/bin/mihomo-restart
+
+# mihomo-test (Расширенная диагностика)
+cat << 'EOF' > /usr/local/bin/mihomo-test
+#!/bin/bash
+echo "=========================================================="
+echo "🔍 ДИАГНОСТИКА MIHOMO"
+echo "=========================================================="
+# 1. Статус сервиса
+if systemctl is-active --quiet mihomo; then
+echo "✅ Статус сервиса: ACTIVE (Работает)"
+else
+echo "❌ Статус сервиса: INACTIVE (Не работает)"
+exit 1
+fi
+# 2. Текущий активный узел
+NODE=$(curl -s http://127.0.0.1:9090/proxies/AUTO-FASTEST 2>/dev/null | grep -o '"now":"[^"]*"' | cut -d'"' -f4)
+if [ -n "$NODE" ]; then
+echo "✅ Активный узел: $NODE"
+else
+echo "⚠️ Не удалось определить активный узел (возможно, подписка еще грузится)"
+fi
+# 3. Тест HTTP/HTTPS
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -x http://127.0.0.1:7890 http://www.gstatic.com/generate_204 -m 5)
+HTTPS_CODE=$(curl -s -o /dev/null -w "%{http_code}" -x http://127.0.0.1:7890 https://www.google.com -m 5)
+if [ "$HTTP_CODE" == "204" ] || [ "$HTTP_CODE" == "200" ]; then
+echo "✅ HTTP прокси: ОК (Код: $HTTP_CODE)"
+else
+echo "❌ HTTP прокси: СБОЙ (Код: $HTTP_CODE)"
+fi
+if [ "$HTTPS_CODE" == "200" ]; then
+echo "✅ HTTPS прокси: ОК (Код: $HTTPS_CODE)"
+else
+echo "❌ HTTPS прокси: СБОЙ (Код: $HTTPS_CODE)"
+fi
+# 4. Внешний IP
+EXT_IP=$(curl -s -x http://127.0.0.1:7890 https://api.ipify.org -m 5)
+if [[ "$EXT_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+echo "✅ Внешний IP через прокси: $EXT_IP"
+else
+echo "❌ Не удалось определить внешний IP (Получено: $EXT_IP)"
+fi
+echo "=========================================================="
+EOF
+chmod +x /usr/local/bin/mihomo-test
+
+# 6. ПЕРВИЧНЫЙ ТЕСТ ПОСЛЕ УСТАНОВКИ
+echo "[6/7] Запуск первичного тестирования..."
+mihomo-test
+
+# 7. WATCHDOG
+echo "[7/7] Установка watchdog (проверка каждые 5 минут)..."
+(crontab -l 2>/dev/null | grep -v "mihomo-watchdog") | crontab -
+echo "*/5 * * * * curl -s -m 5 -x http://127.0.0.1:7890 http://www.gstatic.com/generate_204 >/dev/null || systemctl restart mihomo" | crontab -
+
+echo "✅ Установка и настройка полностью завершены."
+echo "💡 Используй команды: mihomo-start, mihomo-stop, mihomo-restart, mihomo-test"
+echo "=========================================================="
+</file>
+
+<file path="mihomo/README.md">
+# 🚀 Mihomo Auto-Setup
+
+Автоматическая установка, настройка и управление прокси-сервером **[Mihomo](https://github.com/MetaCubeX/mihomo)** (Clash.Meta) на Linux (x86_64).
+
+Скрипты разворачивают Mihomo как системный сервис `systemd`, настраивают автовыбор самого быстрого узла из подписки, добавляют удобные команды управления и watchdog для автоматического перезапуска при сбоях.
+
+---
+
+## ✨ Возможности
+
+- 🧹 Полная очистка предыдущих установок перед развёртыванием
+- 📦 Установка Mihomo `v1.19.33` (linux-amd64-compatible) в `/usr/local/bin`
+- ⚙️ Готовая конфигурация:
+  - HTTP/SOCKS5 прокси на порту `7890`
+  - TUN-режим с системным стеком
+  - DNS в режиме `fake-ip` (Cloudflare + Google DoH)
+  - Sniffer для TLS/HTTP
+  - Автоматический выбор самого быстрого узла (`url-test`)
+- 🤖 Systemd-сервис с автоперезапуском (`Restart=always`)
+- 🛠️ 4 удобные команды: `mihomo-start`, `mihomo-stop`, `mihomo-restart`, `mihomo-test`
+- 👁️ Watchdog в `cron` — проверка каждые 5 минут, автоперезапуск при падении
+
+---
+
+## 📋 Требования
+
+- Linux (x86_64, glibc)
+- `root`-права (или `sudo`)
+- Утилиты: `bash`, `wget`, `gzip`, `curl`, `systemctl`, `cron`
+- Доступ в интернет для загрузки бинарника и подписки
+
+---
+
+## 📥 Установка
+
+```bash
+# Скачиваем установочный скрипт
+wget https://raw.githubusercontent.com/<ваш-репо>/main/install_mihomo.sh
+
+# Делаем исполняемым и запускаем
+chmod +x install_mihomo.sh
+sudo ./install_mihomo.sh
+```
+
+Скрипт выполнит 7 этапов:
+1. Очистка старых установок
+2. Загрузка Mihomo
+3. Создание конфигурации (`/etc/mihomo/config.yaml`)
+4. Регистрация systemd-сервиса
+5. Создание команд управления
+6. Первичный тест (`mihomo-test`)
+7. Установка watchdog в cron
+
+> 💡 **Важно:** Во время установки скрипт сам остановится и запросит у вас URL подписки от вашего поставщика VPN-услуг. Просто вставьте ссылку и нажмите `Enter` — она автоматически подставится в конфигурацию.
+
+---
+
+## 🎮 Команды управления
+
+После установки в системе доступны 4 глобальные команды:
+
+| Команда            | Описание                                  |
+|--------------------|-------------------------------------------|
+| `mihomo-start`     | ▶️ Запуск сервиса                         |
+| `mihomo-stop`      | ⏹️ Остановка сервиса                      |
+| `mihomo-restart`   | 🔄 Перезапуск сервиса                     |
+| `mihomo-test`      | 🔍 Диагностика: статус, активный узел, HTTP/HTTPS, внешний IP |
+
+### Пример использования
+
+```bash
+mihomo-test
+```
+
+Вывод:
+```
+==========================================================
+🔍 ДИАГНОСТИКА MIHOMO
+==========================================================
+✅ Статус сервиса: ACTIVE (Работает)
+✅ Активный узел: 🇳🇱 Netherlands 01
+✅ HTTP прокси: ОК (Код: 204)
+✅ HTTPS прокси: ОК (Код: 200)
+✅ Внешний IP через прокси: 185.xxx.xxx.xxx
+==========================================================
+```
+
+---
+
+## 🧩 Структура файлов после установки
+
+| Путь                                  | Назначение                            |
+|---------------------------------------|---------------------------------------|
+| `/usr/local/bin/mihomo`               | Исполняемый файл Mihomo               |
+| `/usr/local/bin/mihomo-start`         | Команда запуска                       |
+| `/usr/local/bin/mihomo-stop`          | Команда остановки                     |
+| `/usr/local/bin/mihomo-restart`       | Команда перезапуска                   |
+| `/usr/local/bin/mihomo-test`          | Команда диагностики                   |
+| `/etc/mihomo/config.yaml`             | Основной конфиг                       |
+| `/etc/mihomo/providers/my-sub.yaml`   | Скачанная подписка (автообновление)   |
+| `/etc/systemd/system/mihomo.service`  | Systemd-юнит                          |
+| `/opt/mihomo/`                        | Рабочая директория                    |
+
+### Ключевые порты
+
+| Порт   | Назначение                         |
+|--------|------------------------------------|
+| `7890` | HTTP / SOCKS5 / Mixed прокси       |
+| `9090` | RESTful API (только `127.0.0.1`)   |
+| `1053` | Внутренний DNS-резолвер            |
+
+---
+
+## 🔄 Использование прокси
+
+### В терминале (разово)
+```bash
+export https_proxy=http://127.0.0.1:7890
+export http_proxy=http://127.0.0.1:7890
+curl https://www.google.com
+```
+
+### В браузере
+Укажите прокси `127.0.0.1:7890` (SOCKS5 или HTTP) в настройках браузера или расширения (FoxyProxy, SwitchyOmega).
+
+### Через API (переключение узла)
+```bash
+# Получить текущий узел
+curl -s http://127.0.0.1:9090/proxies/AUTO-FASTEST | jq .now
+
+# Переключить на конкретный узел
+curl -X PUT http://127.0.0.1:9090/proxies/AUTO-FASTEST \
+  -H "Content-Type: application/json" \
+  -d '{"name":"🇩🇪 Germany 02"}'
+```
+
+---
+
+## 🗑️ Полное удаление
+
+```bash
+wget https://raw.githubusercontent.com/<ваш-репо>/main/uninstall_mihomo.sh
+chmod +x uninstall_mihomo.sh
+sudo ./uninstall_mihomo.sh
+```
+
+Скрипт удалит:
+- systemd-сервис и его счётчики
+- бинарник Mihomo и все 4 команды управления
+- директории `/etc/mihomo` и `/opt/mihomo`
+- задачу watchdog из `cron`
+- следы в `nftables` и `iptables` (таблицы `mihomo_zalp`, `MIHOMO_TPROXY`)
+
+После выполнения система возвращается в исходное чистое состояние.
+
+---
+
+## 🐛 Troubleshooting
+
+| Проблема                              | Решение                                              |
+|---------------------------------------|------------------------------------------------------|
+| `mihomo-test` показывает ❌ СБОЙ      | `journalctl -u mihomo -n 30` — смотреть логи         |
+| Подписка не грузится                  | Проверьте URL в `/etc/mihomo/config.yaml`            |
+| Сервис падает                         | Watchdog в cron автоматически его поднимет            |
+| Нет интернета после `mihomo-start`    | Проверьте, что не включён TUN + `auto-route` конфликт |
+| Нужно сменить подписку                | Отредактируйте `config.yaml` → `mihomo-restart`      |
+
+### Просмотр логов в реальном времени
+```bash
+journalctl -u mihomo -f
+```
+
+### Ручная проверка конфига
+```bash
+/usr/local/bin/mihomo -t -d /etc/mihomo
+```
+
+---
+
+## 📄 Лицензия
+
+Скрипты распространяются "как есть", без каких-либо гарантий.  
+Mihomo распространяется под собственной лицензией — см. [репозиторий MetaCubeX/mihomo](https://github.com/MetaCubeX/mihomo).
+
+---
+
+## 🙏 Благодарности
+
+- [MetaCubeX/mihomo](https://github.com/MetaCubeX/mihomo) — ядро прокси
+- Авторам скриптов автоматизации
+- [MamBoota] (https://github.com/MamBoota)
+</file>
+
+<file path="mihomo/uninstall_mihomo.sh">
+#!/bin/bash
+echo "🗑️ Начинаем полное удаление Mihomo и всех связанных настроек..."
+
+# 1. Остановка и отключение сервиса
+echo "[1/6] Остановка и отключение сервиса mihomo..."
+sudo systemctl stop mihomo 2>/dev/null
+sudo systemctl disable mihomo 2>/dev/null
+
+# 2. Удаление systemd юнита и сброс счетчиков ошибок
+echo "[2/6] Удаление файла сервиса..."
+sudo rm -f /etc/systemd/system/mihomo.service
+sudo systemctl daemon-reload
+sudo systemctl reset-failed 2>/dev/null
+
+# 3. Удаление бинарных файлов и команд управления
+echo "[3/6] Удаление исполняемых файлов и команд управления..."
+sudo rm -f /usr/local/bin/mihomo
+sudo rm -f /usr/local/bin/mihomo-start
+sudo rm -f /usr/local/bin/mihomo-stop
+sudo rm -f /usr/local/bin/mihomo-restart
+sudo rm -f /usr/local/bin/mihomo-test
+
+# 4. Удаление конфигураций и рабочих директорий
+echo "[4/6] Удаление конфигураций и временных файлов..."
+sudo rm -rf /etc/mihomo
+sudo rm -rf /opt/mihomo
+
+# 5. Очистка cron (удаление watchdog задачи)
+echo "[5/6] Удаление задачи watchdog из cron..."
+crontab -l 2>/dev/null | grep -v "mihomo-watchdog" | grep -v "systemctl restart mihomo" | crontab -
+
+# 6. Очистка остатков правил фаервола от наших экспериментов (nftables и iptables)
+echo "[6/6] Очистка остатков сетевых правил..."
+sudo nft delete table inet mihomo_zalp 2>/dev/null
+sudo iptables -t mangle -F MIHOMO_TPROXY 2>/dev/null
+sudo iptables -t mangle -X MIHOMO_TPROXY 2>/dev/null
+sudo iptables -t mangle -D PREROUTING -j MIHOMO_TPROXY 2>/dev/null
+
+echo ""
+echo "✅ Готово! Mihomo, все его конфиги, команды управления и следы в фаерволе полностью удалены."
+echo "Система возвращена в чистое состояние."
+</file>
+
+<file path="TV_FIX_VPN/install-tv-fix-vpn.sh">
+#!/bin/bash
+set -e
+
+echo "=========================================================="
+echo "🔧 УСТАНОВКА TV_FIX_VPN (Мост Mihomo ↔ Zalp для Smart TV)"
+echo "=========================================================="
+
+# ============================================================
+# ШАГ 1: Очистка старых версий
+# ============================================================
+echo "[1/6] Очистка предыдущих установок..."
+rm -f /usr/local/bin/fix
+rm -f /usr/local/bin/tv_fix_vpn.sh
+iptables -t nat -D PREROUTING -j TV_VPN_FIX 2>/dev/null || true
+iptables -t mangle -D PREROUTING -j TV_VPN_FIX 2>/dev/null || true
+iptables -t nat -F TV_VPN_FIX 2>/dev/null || true
+iptables -t nat -X TV_VPN_FIX 2>/dev/null || true
+iptables -t mangle -F TV_VPN_FIX 2>/dev/null || true
+iptables -t mangle -X TV_VPN_FIX 2>/dev/null || true
+(crontab -l 2>/dev/null | grep -v "tv_fix_vpn\|fix watchdog") | crontab -
+echo "   ✅ Старые правила и файлы удалены."
+
+# ============================================================
+# ШАГ 2: Добавление tproxy-port в конфиг Mihomo (если нет)
+# ============================================================
+echo "[2/6] Настройка Mihomo для TPROXY-перехвата..."
+if ! grep -q "^tproxy-port:" /etc/mihomo/config.yaml 2>/dev/null; then
+    # Вставляем tproxy-port после mixed-port
+    sudo sed -i '/^mixed-port:/a tproxy-port: 7892' /etc/mihomo/config.yaml
+    echo "    Добавлен tproxy-port: 7892 в конфиг Mihomo."
+    sudo systemctl restart mihomo
+    sleep 3
+    echo "    Mihomo перезапущен с новым портом."
+else
+    echo "   ✅ tproxy-port уже настроен."
+fi
+
+# Проверка, что порт слушается
+if ss -tlnp | grep -q ":7892 "; then
+    echo "   ✅ Порт 7892 (TPROXY) активен."
+else
+    echo "   ⚠️  Порт 7892 не слушается. Проверь: sudo mihomo-test"
+fi
+
+# ============================================================
+# ШАГ 3: Создание основного скрипта /usr/local/bin/fix
+# ============================================================
+echo "[3/6] Создание команды 'fix'..."
+
+cat << 'FIXEOF' > /usr/local/bin/fix
+#!/bin/bash
+# ==========================================================
+# TV_FIX_VPN — Мост Mihomo ↔ Zalp для Smart TV
+# Использование: fix {start|stop|restart|test}
+# ==========================================================
+
+# --- КОНФИГУРАЦИЯ ---
+TV_MAC_1="74:E6:B8:06:CD:8A"    # LG WebOS (тестовый)
+TV_MAC_2="04:B9:E3:4A:3C:EC"    # Samsung Tizen 1 (заглушка)
+TV_MAC_3=""                     # Samsung Tizen 2 (заглушка)
+
+MIHOMO_PORT="7890"
+TPROXY_PORT="7892"
+DNS_PORT="1053"
+CHAIN="TV_VPN_FIX"
+LOG="/var/log/tv_fix_vpn.log"
+
+# --- ФУНКЦИИ ---
+
+log_msg() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') — $1" | tee -a "$LOG"
+}
+
+check_mihomo() {
+    local code
+    code=$(curl -s -o /dev/null -w "%{http_code}" -x "http://127.0.0.1:$MIHOMO_PORT" \
+           http://www.gstatic.com/generate_204 -m 5 2>/dev/null)
+    [ "$code" = "204" ] || [ "$code" = "200" ]
+}
+
+is_active() {
+    iptables -t nat -L PREROUTING -n 2>/dev/null | grep -q "$CHAIN"
+}
+
+do_start() {
+    if is_active; then
+        log_msg "️  TV_FIX_VPN уже активен."
+        return 0
+    fi
+
+    if ! check_mihomo; then
+        log_msg " Mihomo не отвечает. Старт отменён — трафик остаётся на Zalp."
+        return 1
+    fi
+
+    # Создаём цепочки
+    iptables -t nat -N $CHAIN 2>/dev/null || iptables -t nat -F $CHAIN
+    iptables -t mangle -N $CHAIN 2>/dev/null || iptables -t mangle -F $CHAIN
+
+    local macs=("$TV_MAC_1" "$TV_MAC_2" "$TV_MAC_3")
+    local count=0
+
+    for mac in "${macs[@]}"; do
+        [ -z "$mac" ] && continue
+
+        # MANGLE: блокируем QUIC и DoH ДО того, как они уйдут дальше
+        iptables -t mangle -A $CHAIN -m mac --mac-source $mac -p udp --dport 443 -j DROP
+        iptables -t mangle -A $CHAIN -m mac --mac-source $mac -p tcp --dport 853 -j DROP
+        iptables -t mangle -A $CHAIN -m mac --mac-source $mac -p udp --dport 853 -j DROP
+
+        # MANGLE: TPROXY для всего TCP (кроме 853, который уже дропнули выше)
+        iptables -t mangle -A $CHAIN -m mac --mac-source $mac -p tcp \
+            -j TPROXY --on-port $TPROXY_PORT --tproxy-mark 0x1/0x1
+
+        # MANGLE: ACCEPT — чтобы пакет НЕ дошёл до NFQWS (Zalp)
+        iptables -t mangle -A $CHAIN -m mac --mac-source $mac -j ACCEPT
+
+        # NAT: перенаправляем DNS на Mihomo
+        iptables -t nat -A $CHAIN -m mac --mac-source $mac -p udp --dport 53 \
+            -j REDIRECT --to-port $DNS_PORT
+
+        log_msg "✅ Правила добавлены для MAC: $mac"
+        ((count++))
+    done
+
+    # Вставляем цепочки в самое начало PREROUTING (приоритет над Zalp/NFQWS)
+    iptables -t mangle -I PREROUTING 1 -j $CHAIN
+    iptables -t nat -I PREROUTING 1 -j $CHAIN
+
+    # Маршруты для TPROXY (обязательны — без них ядро дропает пакеты)
+    ip rule add fwmark 0x1 table 100 2>/dev/null || true
+    ip route add local default dev lo table 100 2>/dev/null || true
+
+    log_msg "🟢 TV_FIX_VPN АКТИВИРОВАН для $count устройств. Трафик ТВ → VPN."
+    echo "🟢 TV_FIX_VPN активен. Трафик телевизоров идёт через Mihomo VPN."
+}
+
+do_stop() {
+    if ! is_active; then
+        log_msg "ℹ️  TV_FIX_VPN уже неактивен."
+        echo " TV_FIX_VPN неактивен. Трафик ТВ обрабатывается Zalp."
+        return 0
+    fi
+
+    iptables -t nat -D PREROUTING -j $CHAIN 2>/dev/null
+    iptables -t mangle -D PREROUTING -j $CHAIN 2>/dev/null
+    iptables -t nat -F $CHAIN 2>/dev/null
+    iptables -t nat -X $CHAIN 2>/dev/null
+    iptables -t mangle -F $CHAIN 2>/dev/null
+    iptables -t mangle -X $CHAIN 2>/dev/null
+
+    ip rule del fwmark 0x1 table 100 2>/dev/null || true
+    ip route del local default dev lo table 100 2>/dev/null || true
+
+    log_msg "🔴 TV_FIX_VPN ОТКЛЮЧЁН. Трафик ТВ делегирован обратно Zalp."
+    echo "🔴 TV_FIX_VPN отключён. Трафик ТВ вернулся к Zalp."
+}
+
+do_restart() {
+    log_msg " Перезапуск TV_FIX_VPN..."
+    do_stop
+    sleep 1
+    do_start
+}
+
+do_test() {
+    echo "=========================================================="
+    echo "🔍 ДИАГНОСТИКА TV_FIX_VPN"
+    echo "=========================================================="
+
+    # 1. Статус патча
+    if is_active; then
+        echo "🟢 TV_FIX_VPN: АКТИВЕН"
+    else
+        echo " TV_FIX_VPN: НЕАКТИВЕН (трафик ТВ → Zalp)"
+    fi
+
+    # 2. Статус Mihomo
+    echo ""
+    echo "── Mihomo ──"
+    if systemctl is-active --quiet mihomo; then
+        echo "✅ Сервис Mihomo: активен"
+    else
+        echo "❌ Сервис Mihomo: неактивен"
+    fi
+
+    if check_mihomo; then
+        echo "✅ Прокси Mihomo: отвечает"
+    else
+        echo "❌ Прокси Mihomo: не отвечает"
+    fi
+
+    local node
+    node=$(curl -s http://127.0.0.1:9090/proxies/AUTO-FASTEST 2>/dev/null \
+           | grep -o '"now":"[^"]*"' | cut -d'"' -f4)
+    [ -n "$node" ] && echo "   Активный узел: $node"
+
+    # 3. Порты
+    echo ""
+    echo "── Порты ──"
+    for p in 7890 7892 1053; do
+        if ss -tlnp | grep -q ":$p "; then
+            echo "✅ Порт $p: слушается"
+        else
+            echo "❌ Порт $p: НЕ слушается"
+        fi
+    done
+
+    # 4. Правила iptables
+    echo ""
+    echo "── Правила iptables (TV_VPN_FIX) ──"
+    iptables -t nat -L $CHAIN -n -v 2>/dev/null || echo "   (цепочка nat не создана)"
+    echo ""
+    iptables -t mangle -L $CHAIN -n -v 2>/dev/null || echo "   (цепочка mangle не создана)"
+
+    # 5. Маршруты TPROXY
+    echo ""
+    echo "── Маршруты TPROXY ──"
+    ip rule list | grep "0x1" || echo "   (правило fwmark 0x1 отсутствует)"
+    ip route show table 100 2>/dev/null || echo "   (таблица 100 пуста)"
+
+    # 6. Список ТВ
+    echo ""
+    echo "── Зарегистрированные устройства ──"
+    local i=1
+    for mac in "$TV_MAC_1" "$TV_MAC_2" "$TV_MAC_3"; do
+        if [ -n "$mac" ]; then
+            echo "   ТВ#$i: $mac ✅"
+        else
+            echo "   ТВ#$i: (не настроен)"
+        fi
+        ((i++))
+    done
+
+    echo "=========================================================="
+}
+
+# --- ТОЧКА ВХОДА ---
+case "$1" in
+    start)   do_start ;;
+    stop)    do_stop ;;
+    restart) do_restart ;;
+    test)    do_test ;;
+    watchdog)
+        # Для cron: автопереключение при падении/восстановлении Mihomo
+        if is_active; then
+            if ! check_mihomo; then
+                log_msg "⚠️  Mihomo упал — отключаю TV_FIX_VPN (fallback на Zalp)"
+                do_stop
+            fi
+        else
+            if check_mihomo; then
+                log_msg "✅ Mihomo восстановлен — включаю TV_FIX_VPN"
+                do_start
+            fi
+        fi
+        ;;
+    *)
+        echo "Использование: fix {start|stop|restart|test}"
+        echo ""
+        echo "  start   — перехватить трафик ТВ через VPN"
+        echo "  stop    — вернуть трафик ТВ к Zalp"
+        echo "  restart — перезапустить патч"
+        echo "  test    — полная диагностика"
+        exit 1
+        ;;
+esac
+FIXEOF
+
+chmod +x /usr/local/bin/fix
+echo "   ✅ Команда 'fix' установлена в /usr/local/bin/fix"
+
+# ============================================================
+# ШАГ 4: Watchdog в cron (каждые 3 минуты)
+# ============================================================
+echo "[4/6] Установка watchdog (авто-fallback при сбое VPN)..."
+(crontab -l 2>/dev/null | grep -v "fix watchdog") | crontab -
+(crontab -l 2>/dev/null; echo "*/3 * * * * /usr/local/bin/fix watchdog >/dev/null 2>&1") | crontab -
+echo "   ✅ Watchdog установлен (проверка каждые 3 минуты)."
+
+# ============================================================
+# ШАГ 5: Первичный запуск и тест
+# ============================================================
+echo "[5/6] Первичный запуск..."
+fix start
+
+echo ""
+echo "[6/6] Диагностика..."
+fix test
+
+echo ""
+echo "=========================================================="
+echo "✅ УСТАНОВКА TV_FIX_VPN ЗАВЕРШЕНА"
+echo "=========================================================="
+echo ""
+echo "Доступные команды:"
+echo "  fix start    — включить перехват ТВ через VPN"
+echo "  fix stop     — отключить, вернуть трафик к Zalp"
+echo "  fix restart  — перезапустить патч"
+echo "  fix test     — диагностика"
+echo ""
+echo "Лог: /var/log/tv_fix_vpn.log"
+echo "=========================================================="
+</file>
+
+<file path="TV_FIX_VPN/README.md">
+# 📺 TV_FIX_VPN — Прозрачный VPN для Smart TV
+
+Надстройка над **Mihomo**, которая перехватывает трафик Smart TV по MAC-адресу и прозрачно направляет его через VPN-прокси. Если VPN падает — трафик автоматически возвращается к **Zalp** (fallback).
+
+Решение построено на **TPROXY** + **iptables** и работает без настройки прокси на самом телевизоре.
+
+---
+
+## ✨ Возможности
+
+- 🎯 Прозрачный перехват трафика ТВ по MAC-адресу (без настроек на самом TV)
+- 🔒 Блокировка QUIC и DoH (UDP 443, TCP/UDP 853) — чтобы ТВ не обходил прокси
+- 🌐 Перенаправление DNS-запросов ТВ на внутренний резолвер Mihomo (порт 1053)
+- 🔄 Автоматический fallback на Zalp при падении VPN
+- 👁️ Watchdog в `cron` — проверка каждые 3 минуты
+- 📊 Встроенная диагностика (`fix test`) — статус, порты, правила, маршруты
+- 📝 Логирование всех событий в `/var/log/tv_fix_vpn.log`
+- 🧹 Полная очистка при удалении — система возвращается в исходное состояние
+
+---
+
+## 📋 Требования
+
+- **Установленный и работающий Mihomo** (см. [install_mihomo.sh](install_mihomo.sh))
+- Linux с поддержкой `iptables`, `TPROXY`, `ip rule`
+- `root`-права (или `sudo`)
+- Утилиты: `bash`, `curl`, `iptables`, `ss`, `ip`, `systemctl`, `cron`
+- Smart TV подключён к той же сети (LAN), что и сервер
+
+---
+
+## ⚙️ Настройка перед установкой
+
+Перед запуском скрипта **обязательно** откройте `install-tv-fix-vpn.sh` и пропишите MAC-адреса своих телевизоров:
+
+```bash
+TV_MAC_1="00:00:00:00:00:00"   # LG WebOS пример
+TV_MAC_2="AA:BB:CC:DD:EE:FF"   # Samsung Tizen 1 пример
+TV_MAC_3="11:22:33:44:55:66"   # Samsung Tizen 2 пример
+```
+
+> 💡 MAC-адрес можно узнать в веб-интерфейсе роутера или в настройках самого ТВ (Сеть → Состояние → MAC-адрес).
+
+---
+
+## 📥 Установка
+
+```bash
+# Скачиваем установочный скрипт
+wget https://raw.githubusercontent.com/<ваш-репо>/main/install-tv-fix-vpn.sh
+
+# Делаем исполняемым и запускаем
+chmod +x install-tv-fix-vpn.sh
+sudo ./install-tv-fix-vpn.sh
+```
+
+Скрипт выполнит 6 этапов:
+1. Очистка старых версий TV_FIX_VPN
+2. Добавление `tproxy-port: 7892` в конфиг Mihomo и его перезапуск
+3. Создание команды `fix` в `/usr/local/bin/fix`
+4. Установка watchdog в `cron` (каждые 3 минуты)
+5. Первичный запуск (`fix start`)
+6. Диагностика (`fix test`)
+
+---
+
+## 🎮 Команды управления
+
+После установки доступна глобальная команда `fix`:
+
+| Команда        | Описание                                           |
+|----------------|----------------------------------------------------|
+| `fix start`    | 🟢 Включить перехват трафика ТВ через VPN          |
+| `fix stop`     | 🔴 Отключить перехват, вернуть трафик к Zalp       |
+| `fix restart`  | 🔄 Перезапустить патч (stop → start)               |
+| `fix test`     | 🔍 Полная диагностика                              |
+| `fix watchdog` | 👁️ Внутренняя команда для cron (авто-fallback)    |
+
+### Пример использования
+
+```bash
+# Включить VPN для ТВ
+sudo fix start
+
+# Проверить статус
+sudo fix test
+```
+
+Вывод `fix test`:
+```
+==========================================================
+🔍 ДИАГНОСТИКА TV_FIX_VPN
+==========================================================
+🟢 TV_FIX_VPN: АКТИВЕН
+
+── Mihomo ──
+✅ Сервис Mihomo: активен
+✅ Прокси Mihomo: отвечает
+   Активный узел: 🇳🇱 Netherlands 01
+
+── Порты ──
+✅ Порт 7890: слушается
+✅ Порт 7892: слушается
+✅ Порт 1053: слушается
+
+── Правила iptables (TV_VPN_FIX) ──
+Chain TV_VPN_FIX (2 references)
+ pkts bytes target     prot opt in     out     source               destination
+    0     0 DROP       udp  --  *      *       0.0.0.0/0            0.0.0.0/0            MAC 74:E6:B8:06:CD:8A udp dpt:443
+   12   720 TPROXY     tcp  --  *      *       0.0.0.0/0            0.0.0.0/0            MAC 74:E6:B8:06:CD:8A TPROXY redirect 127.0.0.1:7892 mark 0x1/0x1
+   45  3600 ACCEPT     all  --  *      *       0.0.0.0/0            0.0.0.0/0            MAC 74:E6:B8:06:CD:8A
+
+── Маршруты TPROXY ──
+1:  from all fwmark 0x1 lookup 100
+local default dev lo scope host table 100
+
+── Зарегистрированные устройства ──
+   ТВ#1: 74:E6:B8:06:CD:8A ✅
+   ТВ#2: (не настроен)
+   ТВ#3: (не настроен)
+==========================================================
+```
+
+---
+
+## 🧩 Как это работает
+
+```
+┌──────────────┐     ┌─────────────────────────────────────────────┐
+│   Smart TV   │────▶│              Linux-сервер                   │
+│  (по MAC)    │     │                                             │
+└──────────────┘     │  iptables PREROUTING                        │
+                     │      ↓                                      │
+                     │  TV_VPN_FIX (mangle)                        │
+                     │      ├─ DROP QUIC/DoH (чтобы не обходили)   │
+                     │      ├─ TPROXY → 127.0.0.1:7892 (Mihomo)    │
+                     │      └─ ACCEPT (не отдаём Zalp/NFQWS)       │
+                     │                                             │
+                     │  TV_VPN_FIX (nat)                           │
+                     │      └─ REDIRECT DNS :53 → :1053 (Mihomo)   │
+                     │                                             │
+                     │  Mihomo (TPROXY mode)                       │
+                     │      ↓                                      │
+                     │  VPN-сервер (из подписки)                   │
+                     └─────────────────────────────────────────────┘
+```
+
+**Ключевые моменты:**
+- **TPROXY** — прозрачное проксирование на уровне ядра, без NAT (сохраняются оригинальные IP)
+- **fwmark 0x1** — метка для policy routing, чтобы TPROXY-пакеты возвращались в Mihomo
+- **DROP QUIC/DoH** — блокируем UDP 443 и TCP/UDP 853, иначе ТВ будет шифровать DNS в обход прокси
+- **Приоритет над Zalp** — цепочка `TV_VPN_FIX` вставляется первой в `PREROUTING`
+
+---
+
+## 🔄 Автоматический fallback
+
+Watchdog в `cron` каждые 3 минуты:
+- Проверяет, отвечает ли Mihomo (`curl` через прокси)
+- Если Mihomo **упал** → `fix stop` → трафик ТВ возвращается к Zalp
+- Если Mihomo **восстановился** → `fix start` → трафик снова идёт через VPN
+
+Это гарантирует, что ТВ **никогда не останется без интернета**, даже если VPN временно недоступен.
+
+---
+
+## 📂 Структура файлов после установки
+
+| Путь                           | Назначение                                |
+|--------------------------------|-------------------------------------------|
+| `/usr/local/bin/fix`           | Команда управления TV_FIX_VPN             |
+| `/etc/mihomo/config.yaml`      | Конфиг Mihomo (добавлен `tproxy-port`)    |
+| `/var/log/tv_fix_vpn.log`      | Лог событий патча                         |
+
+### Используемые порты
+
+| Порт   | Назначение                                     |
+|--------|------------------------------------------------|
+| `7890` | HTTP/SOCKS5 прокси Mihomo (из базовой установки) |
+| `7892` | TPROXY-порт для прозрачного перехвата           |
+| `1053` | Внутренний DNS-резолвер Mihomo                  |
+
+---
+
+## 🗑️ Полное удаление
+
+```bash
+wget https://raw.githubusercontent.com/<ваш-репо>/main/uninstall-tv-fix-vpn.sh
+chmod +x uninstall-tv-fix-vpn.sh
+sudo ./uninstall-tv-fix-vpn.sh
+```
+
+Скрипт удалит:
+- Правила iptables и цепочки `TV_VPN_FIX` (nat + mangle)
+- Маршруты TPROXY (`ip rule` и `table 100`)
+- Команду `fix` и вспомогательные скрипты
+- Задачу watchdog из `cron`
+- Лог-файл `/var/log/tv_fix_vpn.log`
+
+> ⚠️ **Mihomo при этом не удаляется** — он продолжает работать для ручного использования.  
+> Чтобы удалить и Mihomo, запустите отдельно `uninstall_mihomo.sh`.
+
+---
+
+## 🐛 Troubleshooting
+
+| Проблема                                      | Решение                                                    |
+|-----------------------------------------------|------------------------------------------------------------|
+| `fix test` показывает ❌ Порт 7892 не слушается | Проверьте, что `tproxy-port: 7892` есть в `/etc/mihomo/config.yaml` и перезапустите: `sudo systemctl restart mihomo` |
+| Трафик ТВ не идёт через VPN                   | Убедитесь, что MAC-адрес ТВ совпадает с прописанным в скрипте |
+| ТВ не грузит YouTube/приложения               | Проверьте, что QUIC/DoH блокируются (должны быть правила `DROP` в `fix test`) |
+| После `fix start` пропал интернет у ТВ        | Проверьте, что Mihomo работает: `sudo mihomo-test`         |
+| Watchdog не срабатывает                       | Проверьте cron: `sudo crontab -l`                          |
+
+### Просмотр логов в реальном времени
+```bash
+sudo tail -f /var/log/tv_fix_vpn.log
+```
+
+### Ручная проверка правил iptables
+```bash
+sudo iptables -t mangle -L TV_VPN_FIX -n -v
+sudo iptables -t nat -L TV_VPN_FIX -n -v
+```
+
+### Проверка маршрутов TPROXY
+```bash
+ip rule list | grep 0x1
+ip route show table 100
+```
+
+---
+
+## 🔗 Связанные проекты
+
+- [install_mihomo.sh](install_mihomo.sh) — базовая установка Mihomo (обязательна)
+- [uninstall_mihomo.sh](uninstall_mihomo.sh) — полное удаление Mihomo
+
+---
+
+## 📄 Лицензия
+
+Скрипты распространяются "как есть", без каких-либо гарантий.
+
+---
+
+## 🙏 Благодарности
+
+- [MetaCubeX/mihomo](https://github.com/MetaCubeX/mihomo) — ядро прокси
+- Документации Netfilter по TPROXY
+- Авторам скриптов автоматизации
+- [MamBoota] (https://github.com/MamBoota)
+</file>
+
+<file path="TV_FIX_VPN/uninstall-tv-fix-vpn.sh">
+#!/bin/bash
+echo "🗑️ Полное удаление TV_FIX_VPN..."
+
+# 1. Остановка и очистка правил iptables
+echo "[1/5] Очистка правил iptables..."
+iptables -t nat -D PREROUTING -j TV_VPN_FIX 2>/dev/null || true
+iptables -t mangle -D PREROUTING -j TV_VPN_FIX 2>/dev/null || true
+
+# 2. Удаление цепочек TV_VPN_FIX
+echo "[2/5] Удаление цепочек TV_VPN_FIX..."
+iptables -t nat -F TV_VPN_FIX 2>/dev/null || true
+iptables -t nat -X TV_VPN_FIX 2>/dev/null || true
+iptables -t mangle -F TV_VPN_FIX 2>/dev/null || true
+iptables -t mangle -X TV_VPN_FIX 2>/dev/null || true
+
+# 3. Очистка маршрутов TPROXY
+echo "[3/5] Удаление маршрутов TPROXY..."
+ip rule del fwmark 0x1 table 100 2>/dev/null || true
+ip route del local default dev lo table 100 2>/dev/null || true
+
+# 4. Удаление команды fix и скриптов
+echo "[4/5] Удаление команды 'fix'..."
+rm -f /usr/local/bin/fix
+rm -f /usr/local/bin/tv_fix_vpn.sh
+
+# 5. Удаление watchdog из cron
+echo "[5/5] Удаление watchdog из cron..."
+(crontab -l 2>/dev/null | grep -v "fix watchdog" | grep -v "tv_fix_vpn") | crontab -
+
+# Удаление лог-файла
+rm -f /var/log/tv_fix_vpn.log
+
+echo ""
+echo "✅ TV_FIX_VPN полностью удален."
+echo "   - Правила iptables очищены"
+echo "   - Маршруты TPROXY удалены"
+echo "   - Команда 'fix' удалена"
+echo "   - Watchdog отключен"
+echo ""
+echo "ℹ️  Трафик телевизоров теперь обрабатывается Zalp."
+echo "ℹ️  Mihomo продолжает работать независимо (для ручного использования)."
+</file>
+
+<file path="uninstall.sh">
+#!/bin/bash
 # ╔══════════════════════════════════════════════════════╗
-# ║           Zalp Restore v4.0 (Hot Swap)               ║
-# ║     Полная очистка + переустановка (без разрыва)     ║
+# ║           Zalp Uninstaller v1.0                      ║
+# ║     Полное удаление продукта без разрыва интернета   ║
 # ╚══════════════════════════════════════════════════════╝
-
 set -e
 
 GREEN='\033[0;32m'
@@ -58459,7 +58414,7 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 echo -e "${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║           Zalp Restore v4.0 (Hot Swap)               ║${NC}"
+echo -e "${GREEN}║           Zalp Uninstaller v1.0                      ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
 
 if [ "$EUID" -ne 0 ]; then
@@ -58467,318 +58422,128 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# ── Функция поиска следов продукта ──
-find_traces() {
-    local traces=0
-    [ -d /opt/zalp ] && ((traces++))
-    [ -x /opt/zalp/binaries/my/nfqws ] 2>/dev/null && ((traces++))
-    [ -f /etc/systemd/system/nfqws.service ] && ((traces++))
-    [ -x /usr/local/bin/zalp-start ] && ((traces++))
-    [ -x /usr/local/bin/zalp-stop ] && ((traces++))
-    [ -x /usr/local/bin/zalp-restart ] && ((traces++))
-    [ -x /usr/local/bin/zalp-status ] && ((traces++))
-    [ -x /usr/local/bin/zalp-check ] && ((traces++))
-    [ -x /usr/local/bin/zalp-doctor ] && ((traces++))
-    [ -x /usr/local/bin/zalp-restore ] && ((traces++))
-    [ -f /opt/zalp/domains.txt ] && ((traces++))
-    [ -f /opt/zalp/domains-exclude.txt ] && ((traces++))
-    [ -f /var/log/zalp-doctor.log ] && ((traces++))
-    [ -f /var/log/zalp-install.log ] && ((traces++))
-    systemctl is-active --quiet nfqws 2>/dev/null && ((traces++))
-    crontab -l 2>/dev/null | grep -q "zalp-doctor" && ((traces++))
-    iptables -t mangle -L 2>/dev/null | grep -q "NFQUEUE" && ((traces++))
-    echo $traces
-}
-
-# ── 1. Проверка наличия следов ──
-echo -e "${YELLOW}[1/4] Поиск следов установки Zalp...${NC}"
-TRACES=$(find_traces)
+# ── Проверка: а что вообще установлено? ──
+echo -e "${YELLOW}[1/7] Анализ установленных компонентов...${NC}"
+TRACES=0
+[ -d /opt/zalp ] && ((TRACES++))
+[ -f /etc/systemd/system/nfqws.service ] && ((TRACES++))
+[ -x /usr/local/bin/zalp-start ] && ((TRACES++))
+[ -x /usr/local/bin/zalp ] && ((TRACES++))
+[ -f /var/log/zalp-doctor.log ] && ((TRACES++))
+crontab -l 2>/dev/null | grep -q "zalp-doctor" && ((TRACES++))
+iptables -t mangle -L 2>/dev/null | grep -q "NFQUEUE" && ((TRACES++))
 
 if [ "$TRACES" -eq 0 ]; then
-    echo -e "${YELLOW}  Следов установки не найдено.${NC}"
-    echo -e "${YELLOW}  Запускаем чистую установку...${NC}"
-    # Сразу переходим к поиску install.sh
-    SKIP_CLEANUP=1
+    echo -e "${YELLOW}  ℹ️  Следов установки Zalp не найдено. Система чистая.${NC}"
+    exit 0
+fi
+echo -e "${GREEN}  ✓ Найдено $TRACES следов установки${NC}"
+
+# ── 2. Остановка сервисов (без разрыва интернета) ──
+echo -e "${YELLOW}[2/7] Остановка сервисов Zalp...${NC}"
+
+# 2.1 Сначала убираем ТОЛЬКО правила NFQUEUE (обход DPI)
+# Это мгновенно отключает обход, но интернет продолжает работать
+echo -e "${CYAN}  → Отключение обхода DPI (NFQUEUE)...${NC}"
+iptables -t mangle -F PREROUTING 2>/dev/null || true
+iptables -t mangle -F OUTPUT 2>/dev/null || true
+ip6tables -t mangle -F PREROUTING 2>/dev/null || true
+ip6tables -t mangle -F OUTPUT 2>/dev/null || true
+
+# 2.2 Останавливаем сервис nfqws
+echo -e "${CYAN}  → Остановка сервиса nfqws...${NC}"
+systemctl stop nfqws 2>/dev/null || true
+systemctl disable nfqws 2>/dev/null || true
+
+echo -e "${GREEN}  ✓ Сервисы остановлены, интернет работает напрямую${NC}"
+
+# ── 3. Удаление cron-задачи ──
+echo -e "${YELLOW}[3/7] Удаление cron-задачи Doctor...${NC}"
+if crontab -l 2>/dev/null | grep -q "zalp-doctor"; then
+    crontab -l 2>/dev/null | grep -v "zalp-doctor" | crontab -
+    echo -e "${GREEN}  ✓ Cron-задача удалена${NC}"
 else
-    echo -e "${GREEN}  ✓ Найдено $TRACES следов установки${NC}"
-    SKIP_CLEANUP=0
+    echo -e "${CYAN}  — Cron-задача не найдена${NC}"
 fi
 
-if [ "$SKIP_CLEANUP" -eq 0 ]; then
-    # ── 2. Горячее отключение обхода (без разрыва интернета) ──
-    echo -e "${YELLOW}[2/4] Горячее отключение обхода DPI...${NC}"
-    
-    # 2.1 Сначала убираем ТОЛЬКО правила NFQUEUE (обход DPI)
-    # Это мгновенно отключает обход, но интернет продолжает работать
-    echo -e "${CYAN}  → Отключение обхода DPI (NFQUEUE)...${NC}"
-    iptables -t mangle -F PREROUTING 2>/dev/null || true
-    iptables -t mangle -F OUTPUT 2>/dev/null || true
-    ip6tables -t mangle -F PREROUTING 2>/dev/null || true
-    ip6tables -t mangle -F OUTPUT 2>/dev/null || true
-    
-    # 2.2 Останавливаем сервис nfqws (он больше не нужен)
-    echo -e "${CYAN}  → Остановка сервиса nfqws...${NC}"
-    systemctl stop nfqws 2>/dev/null || true
-    systemctl disable nfqws 2>/dev/null || true
-    
-    # 2.3 Убеждаемся, что базовый роутеринг работает (NAT + FORWARD)
-    echo -e "${CYAN}  → Проверка базового роутеринга...${NC}"
-    NET_IFACE=$(ip route | grep default | awk '{print $5}' | head -1)
-    [ -z "$NET_IFACE" ] && NET_IFACE="enp2s0"
-    
-    # IP forwarding должен быть включён
-    if [ "$(sysctl -n net.ipv4.ip_forward)" != "1" ]; then
-        sysctl -w net.ipv4.ip_forward=1 > /dev/null
-    fi
-    
-    # NAT должен работать
-    if ! iptables -t nat -L POSTROUTING -n | grep -q "MASQUERADE.*$NET_IFACE"; then
-        iptables -t nat -A POSTROUTING -o $NET_IFACE -j MASQUERADE
-    fi
-    
-    # FORWARD должен пропускать трафик
-    if ! iptables -L FORWARD -n | grep -q "ACCEPT"; then
-        iptables -A FORWARD -j ACCEPT
-    fi
-    
-    echo -e "${GREEN}  ✓ Обход отключен, интернет работает напрямую${NC}"
-    
-    # ── 3. Полная очистка файлов и конфигов ──
-    echo -e "${YELLOW}[3/4] Полная очистка файлов и конфигов...${NC}"
-    
-    # 3.1 Удаление каталога продукта
-    echo -e "${CYAN}  → Удаление каталога /opt/zalp...${NC}"
-    rm -rf /opt/zalp
-    
-    # 3.2 Удаление systemd-сервисов
-    echo -e "${CYAN}  → Удаление systemd-сервисов...${NC}"
+# ── 4. Удаление systemd-сервисов ──
+echo -e "${YELLOW}[4/7] Удаление systemd-сервисов...${NC}"
+if [ -f /etc/systemd/system/nfqws.service ]; then
     rm -f /etc/systemd/system/nfqws.service
-    rm -f /etc/systemd/system/3proxy.service
     systemctl daemon-reload
     systemctl reset-failed 2>/dev/null || true
-    
-    # 3.3 Удаление команд управления
-    echo -e "${CYAN}  → Удаление команд zalp-*...${NC}"
-    rm -f /usr/local/bin/zalp-start
-    rm -f /usr/local/bin/zalp-stop
-    rm -f /usr/local/bin/zalp-restart
-    rm -f /usr/local/bin/zalp-status
-    rm -f /usr/local/bin/zalp-check
-    rm -f /usr/local/bin/zalp-doctor
-    rm -f /usr/local/bin/zalp-restore
-    
-    # 3.4 Удаление cron-задачи
-    echo -e "${CYAN}  → Удаление cron-задачи...${NC}"
-    if crontab -l 2>/dev/null | grep -q "zalp-doctor"; then
-        crontab -l 2>/dev/null | grep -v "zalp-doctor" | crontab -
-    fi
-    
-    # 3.5 Удаление логов
-    echo -e "${CYAN}  → Удаление логов...${NC}"
-    rm -f /var/log/zalp-doctor.log
-    rm -f /var/log/zalp-install.log
-    
-    # Проверка очистки
-    REMAINING=$(find_traces)
-    if [ "$REMAINING" -gt 0 ]; then
-        echo -e "${RED}  ⚠️  Осталось $REMAINING следов${NC}"
-    else
-        echo -e "${GREEN}  ✓ Система полностью очищена (интернет работает)${NC}"
-    fi
+    echo -e "${GREEN}  ✓ Сервис nfqws удалён${NC}"
 else
-    echo -e "${YELLOW}[2/4] Пропуск очистки${NC}"
-    echo -e "${YELLOW}[3/4] Пропуск очистки${NC}"
+    echo -e "${CYAN}  — Сервис nfqws не найден${NC}"
 fi
 
-# ── 4. Поиск и запуск install.sh ──
-echo -e "${YELLOW}[4/4] Запуск установки Zalp...${NC}"
-
-# Ищем install.sh: сначала рядом с собой, потом в текущей директории
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-INSTALL_SCRIPT=""
-
-if [ -x "$SCRIPT_DIR/install.sh" ]; then
-    INSTALL_SCRIPT="$SCRIPT_DIR/install.sh"
-elif [ -f "$SCRIPT_DIR/install.sh" ]; then
-    chmod +x "$SCRIPT_DIR/install.sh"
-    INSTALL_SCRIPT="$SCRIPT_DIR/install.sh"
-elif [ -x "./install.sh" ]; then
-    INSTALL_SCRIPT="./install.sh"
-elif [ -f "./install.sh" ]; then
-    chmod +x "./install.sh"
-    INSTALL_SCRIPT="./install.sh"
-fi
-
-if [ -z "$INSTALL_SCRIPT" ]; then
-    echo -e "${RED}✗ Не удалось найти install.sh${NC}"
-    echo -e "${YELLOW}  Убедитесь, что ${CYAN}install.sh${YELLOW} лежит в одной папке с ${CYAN}restore.sh${NC}"
-    exit 1
-fi
-
-echo -e "${GREEN}  ✓ Найден install.sh: $INSTALL_SCRIPT${NC}"
-echo ""
-echo -e "${CYAN}  Запускаю установку (интернет продолжит работать)...${NC}"
-echo ""
-
-# Запускаем install.sh
-exec "$INSTALL_SCRIPT"
-</file>
-
-<file path="zalp-console.sh">
-#!/bin/bash
-
-# ╔══════════════════════════════════════════════════════╗
-# ║        Zalp Management Console                       ║
-# ╚══════════════════════════════════════════════════════╝
-
-ZALP_REPO="MamBoota/Zalp"
-VER_FILE="/opt/zalp/VERSION"
-CACHE_FILE="/opt/zalp/.update_cache"
-CACHE_VER="/opt/zalp/.update_ver"
-CACHE_TTL=86400
-
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-RED='\033[0;31m'
-NC='\033[0m'
-
-# Консоль требует root
-[ "$EUID" -ne 0 ] && exec sudo "$0" "$@"
-
-CURRENT_VERSION=$(cat "$VER_FILE" 2>/dev/null || echo "0.0")
-UPDATE_AVAILABLE=0
-REMOTE_TAG=""
-
-pause() { read -rp "  [Enter] — вернуться в меню..."; }
-
-norm_ver() { echo "$1" | sed 's/^v//'; }
-
-is_newer() {
-    [ "$1" = "$2" ] && return 1
-    [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -1)" = "$2" ]
-}
-
-get_remote_tag() {
-    local v
-    v=$(curl -s -m 10 "https://api.github.com/repos/$ZALP_REPO/releases/latest" 2>/dev/null \
-        | grep -m1 '"tag_name"' | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
-    if [ -z "$v" ]; then
-        v=$(curl -s -m 10 "https://api.github.com/repos/$ZALP_REPO/tags" 2>/dev/null \
-            | grep -m1 '"name"' | sed 's/.*"name": *"\([^"]*\)".*/\1/')
+# ── 5. Удаление команд управления ──
+echo -e "${YELLOW}[5/7] Удаление команд управления zalp-*...${NC}"
+COMMANDS_REMOVED=0
+for cmd in zalp zalp-start zalp-stop zalp-restart zalp-status zalp-check zalp-doctor zalp-restore; do
+    if [ -f /usr/local/bin/$cmd ]; then
+        rm -f /usr/local/bin/$cmd
+        ((COMMANDS_REMOVED++))
     fi
-    echo "$v"
-}
-
-check_update() {
-    local now last
-    now=$(date +%s)
-    last=$(cat "$CACHE_FILE" 2>/dev/null || echo 0)
-    if [ $((now - last)) -lt $CACHE_TTL ] && [ -f "$CACHE_VER" ]; then
-        REMOTE_TAG=$(cat "$CACHE_VER")
-    else
-        REMOTE_TAG=$(get_remote_tag)
-        echo "$now" > "$CACHE_FILE" 2>/dev/null
-        echo "$REMOTE_TAG" > "$CACHE_VER" 2>/dev/null
-    fi
-    if [ -n "$REMOTE_TAG" ] && is_newer "$(norm_ver "$CURRENT_VERSION")" "$(norm_ver "$REMOTE_TAG")"; then
-        UPDATE_AVAILABLE=1
-    else
-        UPDATE_AVAILABLE=0
-    fi
-}
-
-do_update() {
-    local dir="/tmp/zalp-update-$$"
-    echo -e "${YELLOW}  Скачивание версии $REMOTE_TAG...${NC}"
-    mkdir -p "$dir"
-    local f ok=1
-    for f in install.sh restore.sh zalp-console.sh; do
-        curl -sL -m 60 "https://raw.githubusercontent.com/$ZALP_REPO/$REMOTE_TAG/$f" -o "$dir/$f" || ok=0
-        head -1 "$dir/$f" 2>/dev/null | grep -q "#!/bin/bash" || ok=0
-        chmod +x "$dir/$f" 2>/dev/null
-    done
-    if [ $ok -ne 1 ]; then
-        echo -e "${RED}  ✗ Ошибка загрузки. Обновление отменено.${NC}"
-        rm -rf "$dir"
-        return 1
-    fi
-    echo -e "${GREEN}  ✓ Файлы загружены. Запускаю горячую замену...${NC}"
-    echo ""
-    "$dir/restore.sh"
-    local rc=$?
-    rm -rf "$dir"
-    return $rc
-}
-
-show_banner() {
-    clear
-    echo -e "${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║            Zalp — Консоль управления                 ║${NC}"
-    echo -e "${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
-    echo -e "  Версия продукта: ${CYAN}v$CURRENT_VERSION${NC}"
-    local dpi="🔴" nfq="🔴" doc="🔴"
-    iptables -t mangle -L 2>/dev/null | grep -q "NFQUEUE" && dpi="🟢"
-    systemctl is-active --quiet nfqws && nfq="🟢"
-    crontab -l 2>/dev/null | grep -q "zalp-doctor" && doc="🟢"
-    echo -e "  Обход DPI: $dpi   NFQWS: $nfq   Doctor: $doc"
-    if [ "$UPDATE_AVAILABLE" = "1" ]; then
-        echo -e "  ${YELLOW}⚠️  ДОСТУПНО ОБНОВЛЕНИЕ: v$(norm_ver "$REMOTE_TAG") (у вас v$CURRENT_VERSION)${NC}"
-        echo -e "  ${YELLOW}   Выберите пункт 9 для установки${NC}"
-    fi
-    echo -e "${GREEN}────────────────────────────────────────────────────────${NC}"
-}
-
-# Первичная проверка обновлений при старте
-check_update
-
-while true; do
-    show_banner
-    echo "  1) Статус системы"
-    echo "  2) Полная диагностика"
-    echo "  3) Запустить обход"
-    echo "  4) Остановить обход"
-    echo "  5) Безопасный перезапуск"
-    echo "  6) Doctor (ручной запуск)"
-    echo "  7) Логи Doctor"
-    echo "  8) Проверить обновления"
-    echo "  9) Установить обновление"
-    echo "  0) Выход"
-    echo ""
-    read -rp "  Выбор: " choice
-    case "$choice" in
-        1) zalp-status; pause ;;
-        2) zalp-check; pause ;;
-        3) zalp-start; pause ;;
-        4) zalp-stop; pause ;;
-        5) zalp-restart; pause ;;
-        6) zalp-doctor; pause ;;
-        7) tail -30 /var/log/zalp-doctor.log 2>/dev/null || echo "  Лог пуст"; pause ;;
-        8) echo "  Проверка обновлений..."; check_update
-           if [ "$UPDATE_AVAILABLE" = "1" ]; then
-               echo -e "  ${YELLOW}Доступна версия: v$(norm_ver "$REMOTE_TAG")${NC}"
-           else
-               echo -e "  ${GREEN}У вас последняя версия (v$CURRENT_VERSION)${NC}"
-           fi; pause ;;
-        9) if [ "$UPDATE_AVAILABLE" = "1" ]; then
-               read -rp "  Установить v$(norm_ver "$REMOTE_TAG")? [y/N]: " ans
-               case "$ans" in
-                   y|Y|д|Д) if do_update; then
-                                echo -e "${GREEN}  ✓ Обновление завершено!${NC}"
-                                echo "  Консоль перезапустится при следующем запуске."
-                                read -rp "  [Enter] — выход..."
-                                exit 0
-                            fi ;;
-                   *) echo "  Отменено." ;;
-               esac
-               pause
-           else
-               echo "  Обновлений нет."; pause
-           fi ;;
-        0) exit 0 ;;
-        *) echo "  Неверный выбор."; pause ;;
-    esac
 done
+echo -e "${GREEN}  ✓ Удалено команд: $COMMANDS_REMOVED${NC}"
+
+# ── 6. Удаление каталога продукта и конфигов ──
+echo -e "${YELLOW}[6/7] Удаление каталога /opt/zalp...${NC}"
+if [ -d /opt/zalp ]; then
+    rm -rf /opt/zalp
+    echo -e "${GREEN}  ✓ Каталог /opt/zalp удалён${NC}"
+else
+    echo -e "${CYAN}  — Каталог не найден${NC}"
+fi
+
+# Удаление логов
+echo -e "${CYAN}  → Удаление логов...${NC}"
+LOGS_REMOVED=0
+for log in /var/log/zalp-doctor.log /var/log/zalp-install.log; do
+    if [ -f "$log" ]; then
+        rm -f "$log"
+        ((LOGS_REMOVED++))
+    fi
+done
+echo -e "${GREEN}  ✓ Удалено логов: $LOGS_REMOVED${NC}"
+
+# ── 7. Финальная проверка ──
+echo -e "${YELLOW}[7/7] Финальная проверка чистоты...${NC}"
+REMAINING=0
+[ -d /opt/zalp ] && ((REMAINING++))
+[ -f /etc/systemd/system/nfqws.service ] && ((REMAINING++))
+[ -x /usr/local/bin/zalp-start ] && ((REMAINING++))
+[ -x /usr/local/bin/zalp ] && ((REMAINING++))
+crontab -l 2>/dev/null | grep -q "zalp-doctor" && ((REMAINING++))
+iptables -t mangle -L 2>/dev/null | grep -q "NFQUEUE" && ((REMAINING++))
+
+if [ "$REMAINING" -gt 0 ]; then
+    echo -e "${RED}  ⚠️  Осталось $REMAINING следов (возможно, требуются ручная проверка)${NC}"
+else
+    echo -e "${GREEN}  ✓ Система полностью очищена${NC}"
+fi
+
+# ── Итог ──
+echo ""
+echo -e "${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}║  ✓ Zalp полностью удалён из системы                 ║${NC}"
+echo -e "${GREEN}╠══════════════════════════════════════════════════════╣${NC}"
+echo -e "${CYAN}║  Что было удалено:                                   ║${NC}"
+echo -e "${CYAN}║    • Каталог /opt/zalp (движок + конфиги)            ║${NC}"
+echo -e "${CYAN}║    • Systemd-сервис nfqws                            ║${NC}"
+echo -e "${CYAN}║    • Cron-задача Doctor                              ║${NC}"
+echo -e "${CYAN}║    • Команды управления zalp-*                       ║${NC}"
+echo -e "${CYAN}║    • Логи /var/log/zalp-*.log                        ║${NC}"
+echo -e "${CYAN}║    • Правила NFQUEUE в iptables/ip6tables            ║${NC}"
+echo -e "${CYAN}║                                                      ║${NC}"
+echo -e "${CYAN}║  Что НЕ было изменено (осталось как было):           ║${NC}"
+echo -e "${CYAN}║    • IP forwarding в /etc/sysctl.conf                ║${NC}"
+echo -e "${CYAN}║    • Базовый NAT и FORWARD (роутинг работает)        ║${NC}"
+echo -e "${CYAN}║    • Сетевые интерфейсы                              ║${NC}"
+echo -e "${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
+echo ""
+echo -e "${YELLOW}💡 Для полной переустановки выполни: ${CYAN}sudo ./install.sh${NC}"
 </file>
 
 <file path=".gitignore">
@@ -58788,6 +58553,7 @@ done
 ## Get latest from https://github.com/github/gitignore/blob/main/VisualStudio.gitignore
 
 repomix.config.json
+create_readme.sh
 
 # User-specific files
 *.rsuser
@@ -59217,271 +58983,12 @@ FodyWeavers.xsd
 *.DS_Store
 </file>
 
-<file path="create_readme.sh">
+<file path="restore.sh">
 #!/bin/bash
-
 # ╔══════════════════════════════════════════════════════╗
-# ║     Скрипт создания README.md для проекта Zalp       ║
-# ║                    Версия 4.1                        ║
+# ║           Zalp Restore v5.0 (Hot Swap)               ║
+# ║     Полная очистка + переустановка (без разрыва)     ║
 # ╚══════════════════════════════════════════════════════╝
-
-set -e
-
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m'
-
-echo -e "${YELLOW}Создание README.md (v4.1)...${NC}"
-
-cat > README.md << 'README_EOF'
-# 🛡️ Zalp — Умный обход DPI для дома
-
-**Zalp** — это комплексная система обхода DPI-блокировок на базе [zapret](https://github.com/bol-van/zapret), оптимизированная для домашнего сервера-роутера. Включает автоматическое самолечение, мониторинг, консоль управления и горячую замену без разрыва интернета.
-
-## ✨ Возможности
-
-- 🚀 **Обход DPI** для YouTube, Instagram, Facebook, Threads и других сервисов
-- 🩺 **Автоматическое самолечение** (Zalp Doctor) каждые 5 минут
-- 🔥 **Горячая замена** — переустановка без разрыва интернета
-- 🎛️ **Консоль управления** (`zalp`) — все функции в одном меню
-- 📦 **Самообновление** — следит за новыми версиями на GitHub и обновляется в один пункт меню
-- 📊 **Расширенная диагностика** с проверкой всех компонентов
-- 🔄 **Автозапуск** через systemd + cron
-- 🌐 **Поддержка IPv4/IPv6** для консолей (Xbox, PlayStation)
-
-## 📁 Структура проекта
-
-```
-Zalp/
-├── README.md          # Документация (этот файл)
-├── install.sh         # Установщик (v4.1)
-├── restore.sh         # Восстановление с горячей заменой (v4.0)
-├── zalp-console.sh    # Консоль управления (v4.1)
-└── create_readme.sh   # Генератор этого README
-```
-
-## 🚀 Быстрый старт
-
-### Установка
-
-```bash
-# Клонируем репозиторий
-git clone https://github.com/MamBoota/Zalp.git
-cd Zalp
-
-# Запускаем установку
-sudo ./install.sh
-```
-
-Установщик автоматически:
-1. Проверит наличие предыдущей установки
-2. Установит все зависимости
-3. Соберёт движок из исходников
-4. Настроит автозапуск
-5. Установит консоль управления `zalp`
-
-### Переустановка (горячая замена)
-
-```bash
-sudo ./restore.sh
-```
-
-**Важно:** `restore.sh` полностью удаляет Zalp и переустанавливает его **без разрыва интернета**. Клиенты не заметят перебоев.
-
-## 🎛️ Консоль управления
-
-```bash
-zalp
-```
-
-Команда сама запросит sudo. Открывается панель с версией продукта, статусом компонентов и меню:
-
-| Пункт | Действие |
-|-------|----------|
-| 1 | Статус системы |
-| 2 | Полная диагностика |
-| 3 | Запустить обход |
-| 4 | Остановить обход |
-| 5 | Безопасный перезапуск |
-| 6 | Doctor (ручной запуск) |
-| 7 | Логи Doctor |
-| 8 | Проверить обновления |
-| 9 | Установить обновление |
-| 0 | Выход |
-
-Если на GitHub вышла новая версия — в панели загорится жёлтый аларм с номером доступной версии.
-
-## 📦 Обновление продукта
-
-Консоль сама следит за обновлениями:
-
-- Текущая версия хранится в `/opt/zalp/VERSION`
-- При старте консоли проверяются теги/релизы репозитория на GitHub (кэш проверки — 24 часа)
-- При обнаружении новой версии в панели появляется аларм
-- Пункт **9** скачивает новые `install.sh`, `restore.sh`, `zalp-console.sh` и запускает горячую замену через `restore.sh` — интернет не прерывается
-
-### Выпуск новой версии (для сопровождающего)
-
-```bash
-# 1. Поднять версию в install.sh (баннер и файл VERSION)
-# 2. Закоммитить изменения
-git add -A && git commit -m "v4.2: описание изменений"
-# 3. Создать тег и запушить
-git tag v4.2
-git push origin HEAD --tags
-```
-
-После этого все установленные копии увидят аларм об обновлении в консоли.
-
-## 🎮 Команды управления
-
-| Команда | Описание |
-|---------|----------|
-| `sudo zalp` | Консоль управления (меню) |
-| `sudo zalp-start` | Запустить обход DPI |
-| `sudo zalp-stop` | Остановить обход DPI |
-| `sudo zalp-restart` | Безопасный перезапуск (с проверкой интернета) |
-| `sudo zalp-status` | Краткий статус системы |
-| `sudo zalp-check` | Полная диагностика |
-| `sudo zalp-doctor` | Ручной запуск самолечения |
-| `sudo zalp-restore` | Восстановление конфигурации |
-
-## 🩺 Система самолечения (Zalp Doctor)
-
-**Zalp Doctor** автоматически проверяет систему каждые 5 минут:
-
-- ✅ Статус сервиса `nfqws`
-- ✅ Включён ли IP forwarding
-- ✅ Отсутствие дубликатов правил NAT
-- ✅ Наличие правил NFQUEUE
-- ✅ Доступность интернета
-- ✅ Автоматическое переподключение сети при проблемах
-
-Лог работы: `/var/log/zalp-doctor.log`
-
-## 🔧 Конфигурация
-
-### Списки доменов
-
-Файлы конфигурации находятся в `/opt/zalp/`:
-
-- `domains.txt` — список доменов для обхода DPI
-- `domains-exclude.txt` — исключения (корпоративные сервисы)
-
-### Стратегия обхода
-
-Текущая стратегия в `/etc/systemd/system/nfqws.service`:
-
-```bash
---dpi-desync=fakedsplit
---dpi-desync-split-pos=1
---dpi-desync-autottl
---dpi-desync-fooling=badseq
---dpi-desync-repeats=2
-```
-
-Оптимизирована для стриминга видео (4K, Shorts, Reels) с минимальными задержками.
-
-## 🔍 Подбор стратегии
-
-Если обход перестал работать, используйте встроенный инструмент `blockcheck.sh`:
-
-```bash
-cd /opt/zalp
-sudo ./blockcheck.sh
-```
-
-Следуйте инструкциям:
-1. Введите домен для теста (например, `www.youtube.com`)
-2. Выберите `standard` режим
-3. Дождитесь окончания (5-10 минут)
-4. Найдите строку `--- WORKING strategy for nfqws: ...`
-5. Обновите параметры в `/etc/systemd/system/nfqws.service`
-6. Перезапустите: `sudo zalp-restart`
-
-## 📋 Требования
-
-- **ОС:** Ubuntu 20.04+ / Debian 11+
-- **Права:** root (sudo)
-- **Сеть:** сервер должен работать как роутер (IP forwarding)
-- **Зависимости:** устанавливаются автоматически
-
-## 🌐 Настройка клиентов
-
-Чтобы клиенты (телефоны, ноутбуки, ТВ) использовали Zalp:
-
-1. Подключите их к Wi-Fi/Ethernet вашего сервера
-2. В настройках сети укажите:
-   - **Шлюз (Gateway):** IP вашего сервера
-   - **DNS:** IP вашего сервера (или любой публичный DNS)
-
-Пример для роутера:
-```
-Шлюз: 192.168.1.50
-DNS: 192.168.1.50
-```
-
-## 🎮 Поддержка консолей (Xbox, PlayStation)
-
-Для Xbox и PlayStation рекомендуется настроить **прямое подключение** к основному роутеру (шлюз = основной роутер), чтобы избежать Double NAT.
-
-## 📝 Логи
-
-- `/var/log/zalp-doctor.log` — лог работы Doctor
-- `/var/log/zalp-install.log` — лог установки
-
-## 🐛 Troubleshooting
-
-### Обход не работает
-
-1. Откройте консоль: `sudo zalp` → пункт 2 (диагностика)
-2. Проверьте статус: `sudo zalp-status`
-3. Проверьте логи: `tail -f /var/log/zalp-doctor.log`
-4. Попробуйте перезапуск: `sudo zalp-restart`
-5. Если не помогло — запустите `blockcheck.sh` для подбора стратегии
-
-### Нет интернета после установки
-
-1. Остановите обход: `sudo zalp-stop`
-2. Проверьте интернет
-3. Если работает — проблема в стратегии обхода
-4. Запустите `blockcheck.sh` для подбора рабочей стратегии
-
-### Переустановка
-
-```bash
-sudo ./restore.sh
-```
-
-Это полностью очистит систему и переустановит Zalp без разрыва интернета.
-
-## 📄 Лицензия
-
-Этот проект использует [zapret](https://github.com/bol-van/zapret) (MIT License).
-
-## 🤝 Вклад
-
-Проблемы и предложения приветствуются в Issues!
-
----
-
-**Автор:** [MamBoota](https://github.com/MamBoota)
-**Версия:** 4.1
-**Дата:** Октябрь 2026
-README_EOF
-
-echo -e "${GREEN}✅ README.md (v4.1) успешно создан!${NC}"
-ls -la README.md
-</file>
-
-<file path="install.sh">
-#!/bin/bash
-
-# ╔══════════════════════════════════════════════════════╗
-# ║           Zalp Installer v4.0 (Stable)               ║
-# ║     DPI Bypass + Doctor + Autostart                  ║
-# ╚══════════════════════════════════════════════════════╝
-
 set -e
 
 GREEN='\033[0;32m'
@@ -59490,13 +58997,8 @@ CYAN='\033[0;36m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-LOG=/var/log/zalp-install.log
-: > "$LOG"
-exec > >(tee -a "$LOG") 2>&1
-trap 'echo -e "${RED}✗ Скрипт упал на строке $LINENO! Лог: $LOG${NC}"' ERR
-
 echo -e "${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║           Zalp Installer v4.0 (Stable)               ║${NC}"
+echo -e "${GREEN}║           Zalp Restore v5.0 (Hot Swap)               ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
 
 if [ "$EUID" -ne 0 ]; then
@@ -59504,82 +59006,457 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# ── Функция проверки наличия продукта ──
-# Ищет ВСЕ следы установки, а не только каталог
-is_installed() {
+find_traces() {
     local traces=0
-    
-    # 1. Каталог движка
     [ -d /opt/zalp ] && ((traces++))
-    
-    # 2. Рабочий бинарник nfqws
-    [ -x /opt/zalp/binaries/my/nfqws ] && ((traces++))
-    
-    # 3. Системный сервис
+    [ -x /opt/zalp/binaries/my/nfqws ] 2>/dev/null && ((traces++))
     [ -f /etc/systemd/system/nfqws.service ] && ((traces++))
-    
-    # 4. Команды управления zalp-*
-    [ -x /usr/local/bin/zalp-start ] && ((traces++))
-    [ -x /usr/local/bin/zalp-doctor ] && ((traces++))
-    
-    # 5. Файлы конфигурации доменов
-    [ -f /opt/zalp/domains.txt ] && ((traces++))
-    
-    # 6. Лог доктора (признак работы)
-    [ -f /var/log/zalp-doctor.log ] && ((traces++))
-    
-    # Если нашли 4+ следов — считаем установленным
-    [ $traces -ge 4 ]
+    [ -x /usr/local/bin/zalp ] && ((traces++))
+    [ -d /opt/mihomo ] && ((traces++))
+    [ -f /etc/mihomo/config.yaml ] && ((traces++))
+    iptables -t mangle -L 2>/dev/null | grep -q "TV_VPN_FIX" && ((traces++))
+    echo $traces
 }
 
-# ── 0. Проверка на существующую установку ──
-echo -e "${YELLOW}[0/?] Проверка существующей установки...${NC}"
-if is_installed; then
-    echo -e "${YELLOW}  ⚠️  Zalp уже установлен в системе.${NC}"
-    echo -e "${YELLOW}  Чтобы переустановить — сначала запусти ${CYAN}restore.sh${NC}"
-    echo -e "${YELLOW}  (он полностью очистит систему и запустит свежую установку)${NC}"
+echo -e "${YELLOW}[1/4] Поиск следов установки...${NC}"
+TRACES=$(find_traces)
+if [ "$TRACES" -eq 0 ]; then
+    echo -e "${YELLOW}  Следов установки не найдено. Запускаем чистую установку...${NC}"
+    SKIP_CLEANUP=1
+else
+    echo -e "${GREEN}  ✓ Найдено $TRACES следов установки${NC}"
+    SKIP_CLEANUP=0
+fi
+
+if [ "$SKIP_CLEANUP" -eq 0 ]; then
+    echo -e "${YELLOW}[2/4] Горячее отключение модулей (без разрыва интернета)...${NC}"
+    
+    # Отключение DPI
+    iptables -t mangle -F PREROUTING 2>/dev/null || true
+    iptables -t mangle -F OUTPUT 2>/dev/null || true
+    ip6tables -t mangle -F PREROUTING 2>/dev/null || true
+    systemctl stop nfqws 2>/dev/null || true
+
+    # Отключение TV Fix
+    if command -v fix &> /dev/null; then
+        fix stop 2>/dev/null || true
+    fi
+    iptables -t mangle -F TV_VPN_FIX 2>/dev/null || true
+    iptables -t nat -F TV_VPN_FIX 2>/dev/null || true
+
+    # Отключение Mihomo
+    if command -v mihomo-stop &> /dev/null; then
+        mihomo-stop 2>/dev/null || true
+    fi
+    systemctl stop mihomo 2>/dev/null || true
+
+    # Восстановление базового роутинга
+    NET_IFACE=$(ip route | grep default | awk '{print $5}' | head -1)
+    [ -z "$NET_IFACE" ] && NET_IFACE="eth0"
+    sysctl -w net.ipv4.ip_forward=1 > /dev/null
+    iptables -t nat -A POSTROUTING -o $NET_IFACE -j MASQUERADE 2>/dev/null || true
+    iptables -A FORWARD -j ACCEPT 2>/dev/null || true
+    
+    echo -e "${GREEN}  ✓ Модули отключены, интернет работает напрямую${NC}"
+
+    echo -e "${YELLOW}[3/4] Полная очистка файлов и конфигов...${NC}"
+    rm -rf /opt/zalp
+    rm -rf /opt/mihomo /etc/mihomo
+    rm -f /etc/systemd/system/nfqws.service
+    rm -f /etc/systemd/system/mihomo.service
+    rm -f /usr/local/bin/zalp /usr/local/bin/zalp-*
+    rm -f /usr/local/bin/mihomo* /usr/local/bin/fix
+    
+    # Очистка cron
+    crontab -l 2>/dev/null | grep -v "zalp-doctor" | grep -v "mihomo-watchdog" | grep -v "tv_fix_vpn" | crontab - || true
+    
+    systemctl daemon-reload
+    systemctl reset-failed 2>/dev/null || true
+    
+    REMAINING=$(find_traces)
+    if [ "$REMAINING" -gt 0 ]; then
+        echo -e "${RED}  ⚠️  Осталось $REMAINING следов (требуется ручная проверка)${NC}"
+    else
+        echo -e "${GREEN}  ✓ Система полностью очищена${NC}"
+    fi
+else
+    echo -e "${YELLOW}[2/4] Пропуск очистки${NC}"
+    echo -e "${YELLOW}[3/4] Пропуск очистки${NC}"
+fi
+
+echo -e "${YELLOW}[4/4] Запуск установки Zalp v5.0...${NC}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+INSTALL_SCRIPT=""
+
+if [ -x "$SCRIPT_DIR/install.sh" ]; then
+    INSTALL_SCRIPT="$SCRIPT_DIR/install.sh"
+elif [ -x "./install.sh" ]; then
+    INSTALL_SCRIPT="./install.sh"
+fi
+
+if [ -z "$INSTALL_SCRIPT" ]; then
+    echo -e "${RED}✗ Не удалось найти install.sh${NC}"
+    exit 1
+fi
+
+echo -e "${GREEN}  ✓ Найден install.sh: $INSTALL_SCRIPT${NC}"
+echo ""
+exec "$INSTALL_SCRIPT"
+</file>
+
+<file path="zalp-console.sh">
+#!/bin/bash
+# ╔══════════════════════════════════════════════════════╗
+# ║        Zalp Unified Management Console v5.0          ║
+# ╚══════════════════════════════════════════════════════╝
+
+ZALP_REPO="MamBoota/Zalp"
+VER_FILE="/opt/zalp/VERSION"
+CACHE_FILE="/opt/zalp/.update_cache"
+CACHE_VER="/opt/zalp/.update_ver"
+CACHE_TTL=86400
+
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+[ "$EUID" -ne 0 ] && exec sudo "$0" "$@"
+
+CURRENT_VERSION=$(cat "$VER_FILE" 2>/dev/null || echo "0.0")
+UPDATE_AVAILABLE=0
+REMOTE_TAG=""
+
+pause() { read -rp "  [Enter] — вернуться в меню..."; }
+
+norm_ver() { echo "$1" | sed 's/^v//'; }
+is_newer() {
+    [ "$1" = "$2" ] && return 1
+    [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -1)" = "$2" ]
+}
+
+get_remote_tag() {
+    local v
+    v=$(curl -s -m 10 "https://api.github.com/repos/$ZALP_REPO/releases/latest" 2>/dev/null | grep -m1 '"tag_name"' | sed 's/.*"tag_name": "\([^"]*\)".*/\1/')
+    if [ -z "$v" ]; then
+        v=$(curl -s -m 10 "https://api.github.com/repos/$ZALP_REPO/tags" 2>/dev/null | grep -m1 '"name"' | sed 's/.*"name": "\([^"]*\)".*/\1/')
+    fi
+    echo "$v"
+}
+
+check_update() {
+    local now=$(date +%s)
+    local last=$(cat "$CACHE_FILE" 2>/dev/null || echo 0)
+    if [ $((now - last)) -lt $CACHE_TTL ] && [ -f "$CACHE_VER" ]; then
+        REMOTE_TAG=$(cat "$CACHE_VER")
+    else
+        REMOTE_TAG=$(get_remote_tag)
+        echo "$now" > "$CACHE_FILE" 2>/dev/null
+        echo "$REMOTE_TAG" > "$CACHE_VER" 2>/dev/null
+    fi
+    if [ -n "$REMOTE_TAG" ] && is_newer "$(norm_ver "$CURRENT_VERSION")" "$(norm_ver "$REMOTE_TAG")"; then
+        UPDATE_AVAILABLE=1
+    else
+        UPDATE_AVAILABLE=0
+    fi
+}
+
+do_update() {
+    local dir="/tmp/zalp-update-$$"
+    echo -e "${YELLOW}  Скачивание версии $REMOTE_TAG...${NC}"
+    mkdir -p "$dir"
+    local f ok=1
+    for f in install.sh restore.sh zalp-console.sh; do
+        curl -sL -m 60 "https://raw.githubusercontent.com/$ZALP_REPO/$REMOTE_TAG/$f" -o "$dir/$f" || ok=0
+        head -1 "$dir/$f" 2>/dev/null | grep -q "#!/bin/bash" || ok=0
+        chmod +x "$dir/$f" 2>/dev/null
+    done
+    if [ $ok -ne 1 ]; then
+        echo -e "${RED}  ✗ Ошибка загрузки. Обновление отменено.${NC}"
+        rm -rf "$dir"
+        return 1
+    fi
+    echo -e "${GREEN}  ✓ Файлы загружены. Запускаю горячую замену...${NC}"
+    "$dir/restore.sh"
+    local rc=$?
+    rm -rf "$dir"
+    return $rc
+}
+
+show_banner() {
+    clear
+    echo -e "${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║         Zalp Unified Console v5.0                    ║${NC}"
+    echo -e "${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
+    echo -e "  Версия продукта: ${CYAN}v$CURRENT_VERSION${NC}"
+    
+    local dpi="🔴" nfq="🔴" doc="🔴" mih="⚪" tvf="⚪"
+    iptables -t mangle -L 2>/dev/null | grep -q "NFQUEUE" && dpi="🟢"
+    systemctl is-active --quiet nfqws && nfq="🟢"
+    (systemctl is-active --quiet zalp-doctor.timer 2>/dev/null || grep -q "zalp-doctor" /var/spool/cron/crontabs/root 2>/dev/null) && doc="🟢"
+    
+    [ -x /usr/local/bin/mihomo-start ] && mih="🟢"
+    iptables -t mangle -L 2>/dev/null | grep -q "TV_VPN_FIX" && tvf="🟢"
+
+    echo -e "  DPI Bypass: $dpi   NFQWS: $nfq   Doctor: $doc"
+    echo -e "  Mihomo: $mih   TV Fix: $tvf"
+    
+    if [ "$UPDATE_AVAILABLE" = "1" ]; then
+        echo -e "  ${YELLOW}⚠️  ДОСТУПНО ОБНОВЛЕНИЕ: v$(norm_ver "$REMOTE_TAG") (у вас v$CURRENT_VERSION)${NC}"
+    fi
+    echo -e "${GREEN}────────────────────────────────────────────────────────${NC}"
+}
+
+check_update
+
+while true; do
+    show_banner
+    echo "  1) Статус системы (zalp status)"
+    echo "  2) Полная диагностика (zalp check)"
+    echo "  3) Запустить обход DPI (zalp start)"
+    echo "  4) Остановить обход DPI (zalp stop)"
+    echo "  5) Безопасный перезапуск (zalp restart)"
+    echo "  6) Doctor: ручное лечение (zalp doctor)"
+    echo "  7) Логи Doctor"
+    echo "  8) Управление Mihomo (прокси)"
+    echo "  9) Управление TV Fix (VPN для ТВ)"
+    echo " 10) Тестирование стратегий (Blockcheck)"
+    echo " 11) Проверить обновления"
+    echo " 12) Установить обновление"
+    echo "  0) Выход"
+    echo " "
+    read -rp "  Выбор: " choice
+    
+    case "$choice" in
+        1) zalp status; pause ;;
+        2) zalp check; pause ;;
+        3) zalp start; pause ;;
+        4) zalp stop; pause ;;
+        5) zalp restart; pause ;;
+        6) zalp doctor; pause ;;
+        7) tail -30 /var/log/zalp-doctor.log 2>/dev/null || echo "  Лог пуст"; pause ;;
+        8) 
+            if [ -x /usr/local/bin/mihomo-start ]; then
+                echo "  Выберите действие для Mihomo:"
+                echo "  a) Запустить (mihomo-start)"
+                echo "  b) Остановить (mihomo-stop)"
+                echo "  c) Перезапустить (mihomo-restart)"
+                echo "  d) Диагностика (mihomo-test)"
+                read -rp "  Выбор [a/b/c/d]: " m_choice
+                case "$m_choice" in
+                    a) mihomo-start ;;
+                    b) mihomo-stop ;;
+                    c) mihomo-restart ;;
+                    d) mihomo-test ;;
+                    *) echo "  Неверный выбор." ;;
+                esac
+            else
+                echo -e "${YELLOW}  Mihomo не установлен. Запустите install.sh для добавления модуля.${NC}"
+            fi
+            pause ;;
+        9)
+            if iptables -t mangle -L 2>/dev/null | grep -q "TV_VPN_FIX"; then
+                echo "  Выберите действие для TV Fix:"
+                echo "  a) Запустить (fix start)"
+                echo "  b) Остановить (fix stop)"
+                echo "  c) Перезапустить (fix restart)"
+                echo "  d) Диагностика (fix test)"
+                read -rp "  Выбор [a/b/c/d]: " t_choice
+                case "$t_choice" in
+                    a) fix start ;;
+                    b) fix stop ;;
+                    c) fix restart ;;
+                    d) fix test ;;
+                    *) echo "  Неверный выбор." ;;
+                esac
+            else
+                echo -e "${YELLOW}  TV Fix не установлен. Запустите install.sh для добавления модуля.${NC}"
+            fi
+            pause ;;
+        10)
+            echo -e "${CYAN}  Запуск blockcheck.sh для подбора стратегии...${NC}"
+            echo "  Следуйте инструкциям на экране."
+            if [ -f /opt/zalp/blockcheck.sh ]; then
+                cd /opt/zalp && sudo ./blockcheck.sh
+            else
+                echo -e "${RED}  ✗ Скрипт blockcheck.sh не найден в /opt/zalp/${NC}"
+            fi
+            pause ;;
+        11) 
+            echo "  Проверка обновлений..."
+            check_update
+            if [ "$UPDATE_AVAILABLE" = "1" ]; then
+                echo -e "  ${YELLOW}Доступна версия: v$(norm_ver "$REMOTE_TAG")${NC}"
+            else
+                echo -e "  ${GREEN}У вас последняя версия (v$CURRENT_VERSION)${NC}"
+            fi
+            pause ;;
+        12) 
+            if [ "$UPDATE_AVAILABLE" = "1" ]; then
+                read -rp "  Установить v$(norm_ver "$REMOTE_TAG")? [y/N]: " ans
+                case "$ans" in
+                    y|Y|д|Д) 
+                        if do_update; then
+                            echo -e "${GREEN}  ✓ Обновление завершено!${NC}"
+                            echo "  Консоль перезапустится при следующем запуске."
+                            read -rp "  [Enter] — выход..."
+                            exit 0
+                        fi ;;
+                    *) echo "  Отменено." ;;
+                esac
+            else
+                echo "  Обновлений нет."
+            fi
+            pause ;;
+        0) exit 0 ;;
+        *) echo "  Неверный выбор."; pause ;;
+    esac
+done
+</file>
+
+<file path="README.md">
+# 🛡️ Zalp v5.0 — Умный обход DPI и управление сетью
+
+**Zalp** — это комплексная, модульная система обхода DPI-блокировок и управления сетевым трафиком на базе [zapret](https://github.com/bol-van/zapret), оптимизированная для домашнего сервера или роутера. В версии 5.0 система объединяет в себе обход DPI, прозрачный прокси (Mihomo), исправление маршрутизации для Smart TV и встроенную диагностику.
+
+## ✨ Возможности
+- 🚀 **Обход DPI**: YouTube, Instagram, Facebook, Threads и другие сервисы.
+- 🩺 **Zalp Doctor**: Автоматическое самолечение и мониторинг каждые 5 минут.
+- 🔄 **Горячая замена**: Переустановка и обновление без разрыва интернета.
+- 🎛️ **Единая консоль `zalp`**: Управление всеми модулями из одного меню.
+- 🌐 **Модуль Mihomo**: Встроенная поддержка прозрачного прокси (VLESS, Trojan, Shadowsocks и др.).
+- 📺 **TV Fix VPN**: Автоматический прозрачный VPN для Smart TV (LG, Samsung) без настройки на самом телевизоре.
+- 🧪 **Встроенный Blockcheck**: Автоматический подбор рабочих стратегий обхода для вашего провайдера.
+- 📦 **Самообновление**: Следит за релизами на GitHub и обновляется в один клик.
+
+## 📁 Структура проекта
+Zalp/
+├── README.md # Документация
+├── install.sh # Универсальный установщик v5.0
+├── restore.sh # Горячая замена и полный сброс
+├── zalp-console.sh # Единая панель управления (устанавливается как zalp)
+├── create_readme.sh # Генератор этого README
+├── mihomo/ # Модуль прозрачного прокси (опционально)
+└── TV_FIX_VPN/ # Модуль прозрачного VPN для Smart TV (опционально)
+
+
+## 🚀 Быстрый старт
+
+### Установка
+```bash
+git clone https://github.com/MamBoota/Zalp.git
+cd Zalp
+sudo ./install.sh
+
+Установщик предложит настроить базовый обход DPI, а также опционально установить Mihomo и TV Fix.
+Единая консоль управления
+Просто введите в терминале:
+```bash
+sudo zalp
+
+Откроется интерактивное меню со статусом всех систем, управлением DPI, прокси, ТВ и диагностикой.
+Команды управления
+Все команды теперь объединены под одним интерфейсом zalp:
+
+Команда sudo zalp | Описание Интерактивная консоль управления
+Команда sudo zalp start | Описание Запустить обход DPI
+Команда sudo zalp stop | Описание Остановить обход DPI
+Команда sudo zalp restart | Описание Безопасный перезапуск (с проверкой сети)
+Команда sudo zalp status | Описание Краткий статус всех модулей
+Команда sudo zalp doctor | Описание Ручной запуск самолечения
+Команда sudo zalp mihomo | Описание Меню управления прокси Mihomo
+Команда sudo zalp tvfix | Описание Меню управления прозрачным VPN для ТВ
+Команда sudo zalp test | Описание Запуск встроенного blockcheck.sh
+Команда sudo zalp restore | Описание Полная очистка и горячая переустановка
+
+🔧 Конфигурация
+Основные файлы находятся в /opt/zalp/:
+domains.txt — список доменов для обхода DPI.
+domains-exclude.txt — исключения (например, локальные сервисы или 1С).
+Стратегия обхода настраивается в /etc/systemd/system/nfqws.service (по умолчанию оптимизирована для 4K-стриминга с минимальными задержками).
+
+🐛 Troubleshooting
+Обход не работает?
+Откройте sudo zalp → пункт 2 (Диагностика).
+Если стратегия устарела, выберите пункт "Тестирование (Blockcheck)" для подбора новой.
+Примените новую стратегию и выполните sudo zalp restart.
+
+Нет интернета после установки?
+Выполните sudo zalp stop.
+Если интернет появился, проблема в стратегии. Запустите sudo zalp test для подбора рабочей.
+
+📄 Лицензия
+Этот проект использует zapret и Mihomo (MIT License).
+Автор: MamBoota
+Версия: 5.0
+Дата: 2026
+</file>
+
+<file path="install.sh">
+#!/bin/bash
+# ╔══════════════════════════════════════════════════════╗
+# ║           Zalp Installer v5.0 (Unified)              ║
+# ║     DPI Bypass + Mihomo + TV Fix + Doctor            ║
+# ╚══════════════════════════════════════════════════════╝
+### 2. `install.sh` (Универсальный установщик v5.0)
+*Добавлена интеграция Mihomo и TV Fix, обновлена версия.*
+set -e
+
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+RED='\033[0;31m'
+NC='\033[0m'
+LOG=/var/log/zalp-install.log
+
+: > "$LOG"
+exec > >(tee -a "$LOG") 2>&1
+trap 'echo -e "${RED}✗ Скрипт упал на строке $LINENO! Лог: $LOG${NC}"' ERR
+
+echo -e "${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}║           Zalp Installer v5.0 (Unified)              ║${NC}"
+echo -e "${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
+
+if [ "$EUID" -ne 0 ]; then
+    echo -e "${RED}✗ Запускать только через sudo${NC}"
+    exit 1
+fi
+
+# 0. Проверка на существующую установку
+echo -e "${YELLOW}[0/6] Проверка существующей установки...${NC}"
+if [ -d /opt/zalp ] && [ -x /opt/zalp/binaries/my/nfqws ]; then
+    echo -e "${YELLOW}  ⚠️  Zalp уже установлен.${NC}"
+    echo -e "${YELLOW}  Для переустановки используйте: ${CYAN}sudo ./restore.sh${NC}"
     exit 0
 fi
-echo -e "${GREEN}  ✓ Чистая система, начинаем установку${NC}"
 
-# ── 1. Зависимости ──
-echo -e "${YELLOW}[1/10] Установка зависимостей...${NC}"
+# 1. Зависимости
+echo -e "${YELLOW}[1/6] Установка зависимостей...${NC}"
 apt update -qq
 apt install -y -qq git build-essential make gcc zlib1g-dev libcap-dev \
     libnetfilter-queue-dev libmnl-dev libsystemd-dev \
     netfilter-persistent iptables curl wget openssl > /dev/null 2>&1
 echo -e "${GREEN}  ✓ Зависимости установлены${NC}"
 
-# ── 2. Движок Zalp ──
-echo -e "${YELLOW}[2/10] Установка движка Zalp...${NC}"
+# 2. Движок Zalp
+echo -e "${YELLOW}[2/6] Установка и компиляция движка Zalp...${NC}"
 if [ ! -d /opt/zalp ]; then
     git clone https://github.com/bol-van/zapret.git /opt/zalp
 fi
 cd /opt/zalp
-
 if [ ! -x ./binaries/my/nfqws ] || [ ! -x ./binaries/my/tpws ]; then
     echo "  Компиляция движка из исходников (1-3 минуты)..."
-    if ! make systemd > /tmp/zalp-build.log 2>&1; then
-        echo -e "${RED}✗ Ошибка сборки движка:${NC}"
-        tail -30 /tmp/zalp-build.log
+    make systemd > /tmp/zalp-build.log 2>&1 || {
+        echo -e "${RED}✗ Ошибка сборки движка. Проверьте /tmp/zalp-build.log${NC}"
         exit 1
-    fi
+    }
 fi
-
 ./install_bin.sh || true
-if [ ! -x ./binaries/my/nfqws ]; then
-    mkdir -p binaries/my
-    for b in nfqws tpws ip2net mdig; do
-        f=$(find . -maxdepth 2 -type f -name "$b" -perm -111 -not -path "./binaries/*" | head -1)
-        [ -n "$f" ] && cp -f "$f" binaries/my/
-    done
-    ./install_bin.sh || true
-fi
-echo -e "${GREEN}  ✓ Движок собран${NC}"
+echo -e "${GREEN}  ✓ Движок собран и установлен${NC}"
 
-# ── 3. Конфигурации доменов ──
-echo -e "${YELLOW}[3/10] Применение конфигураций доменов...${NC}"
-
+# 3. Конфигурации доменов
+echo -e "${YELLOW}[3/6] Применение конфигураций доменов...${NC}"
 cat > /opt/zalp/domains.txt << 'EOF'
 youtube.com
 youtubei.googleapis.com
@@ -59602,19 +59479,8 @@ i.instagram.com
 threads.net
 www.threads.net
 graph.instagram.com
-b.i.instagram.com
-scontent.cdninstagram.com
-static.cdninstagram.com
-lookaside.fbsbx.com
 facebook.com
 www.facebook.com
-api.instagram.com
-video.cdninstagram.com
-scontent-*.cdninstagram.com
-*.fbcdn.net
-*.fbsbx.com
-edge-star-mini-shv-*.fbcdn.net
-*.instagram.com
 EOF
 
 cat > /opt/zalp/domains-exclude.txt << 'EOF'
@@ -59626,9 +59492,8 @@ vokino.tv
 EOF
 echo -e "${GREEN}  ✓ Конфиги доменов применены${NC}"
 
-# ── 4. Systemd-сервис nfqws ──
-echo -e "${YELLOW}[4/10] Создание systemd-сервиса nfqws...${NC}"
-
+# 4. Systemd-сервис nfqws
+echo -e "${YELLOW}[4/6] Создание systemd-сервиса nfqws...${NC}"
 cat > /etc/systemd/system/nfqws.service << 'EOF'
 [Unit]
 Description=Zalp DPI bypass (nfqws)
@@ -59646,503 +59511,73 @@ WantedBy=multi-user.target
 EOF
 echo -e "${GREEN}  ✓ Сервис nfqws создан${NC}"
 
-# ── 5. Скрипты управления zalp-* ──
-echo -e "${YELLOW}[5/10] Создание скриптов управления...${NC}"
+# 5. Опциональные модули (Mihomo и TV Fix)
+echo -e "${YELLOW}[5/6] Настройка дополнительных модулей...${NC}"
+INSTALL_MIHOMO="N"
+INSTALL_TVFIX="N"
 
-# Автоопределение сетевого интерфейса
-NET_IFACE=$(ip route | grep default | awk '{print $5}' | head -1)
-[ -z "$NET_IFACE" ] && NET_IFACE="enp2s0"
-
-cat > /usr/local/bin/zalp-start << EOF
-#!/bin/bash
-GREEN='\033[0;32m'
-NC='\033[0m'
-echo "🚀 Включаю Zalp DPI Bypass..."
-sudo sysctl -w net.ipv4.ip_forward=1 > /dev/null
-sudo sysctl -w net.ipv6.conf.all.forwarding=1 > /dev/null
-sudo systemctl start nfqws
-sudo iptables -t nat -F POSTROUTING
-sudo iptables -F FORWARD
-sudo iptables -t mangle -F PREROUTING
-sudo ip6tables -t mangle -F PREROUTING
-sudo ip6tables -F FORWARD
-sudo iptables -t nat -A POSTROUTING -o $NET_IFACE -j MASQUERADE
-sudo iptables -A FORWARD -j ACCEPT
-sudo iptables -t mangle -A PREROUTING -p tcp -m multiport --dports 80,443 -j NFQUEUE --queue-num 1
-sudo iptables -t mangle -A PREROUTING -p udp --dport 443 -j NFQUEUE --queue-num 1
-sudo ip6tables -t mangle -A PREROUTING -p tcp -m multiport --dports 80,443 -j NFQUEUE --queue-num 1
-sudo ip6tables -t mangle -A PREROUTING -p udp --dport 443 -j NFQUEUE --queue-num 1
-sudo netfilter-persistent save > /dev/null
-echo -e "\${GREEN}✅ Zalp активирован! (Интерфейс: $NET_IFACE).\${NC}"
-EOF
-
-cat > /usr/local/bin/zalp-stop << 'EOF'
-#!/bin/bash
-GREEN='\033[0;32m'
-NC='\033[0m'
-echo "⏹️ Выключаю Zalp DPI Bypass..."
-sudo systemctl stop nfqws
-sudo iptables -t mangle -F
-sudo ip6tables -t mangle -F
-sudo netfilter-persistent save > /dev/null
-echo -e "${GREEN}✅ Zalp деактивирован!${NC}"
-EOF
-
-cat > /usr/local/bin/zalp-doctor << 'EOF'
-#!/bin/bash
-RED='\033[0;31m'
-YELLOW='\033[1;33m'
-GREEN='\033[0;32m'
-NC='\033[0m'
-LOG_FILE="/var/log/zalp-doctor.log"
-echo "$(date '+%Y-%m-%d %H:%M:%S') - Запуск Zalp Doctor" >> $LOG_FILE
-EXIT_CODE=0
-
-if ! systemctl is-active --quiet nfqws; then
-    systemctl restart nfqws
-fi
-
-if [ "$(sysctl -n net.ipv4.ip_forward)" != "1" ]; then
-    sysctl -w net.ipv4.ip_forward=1 > /dev/null
-fi
-
-NET_IFACE=$(ip route | grep default | awk '{print $5}' | head -1)
-[ -z "$NET_IFACE" ] && NET_IFACE="enp2s0"
-
-MASQ_COUNT=$(iptables -t nat -L POSTROUTING -n | grep -c "MASQUERADE")
-FWD_ACCEPT_COUNT=$(iptables -L FORWARD -n | grep -c "ACCEPT")
-if [ "$MASQ_COUNT" -gt 1 ]; then
-    iptables -t nat -F POSTROUTING
-    iptables -t nat -A POSTROUTING -o $NET_IFACE -j MASQUERADE
-fi
-if [ "$FWD_ACCEPT_COUNT" -gt 1 ]; then
-    iptables -F FORWARD
-    iptables -A FORWARD -j ACCEPT
-fi
-
-NFQ_COUNT=$(iptables -t mangle -L PREROUTING -n | grep -c "NFQUEUE")
-if [ "$NFQ_COUNT" -lt 2 ]; then
-    iptables -t mangle -A PREROUTING -p tcp -m multiport --dports 80,443 -j NFQUEUE --queue-num 1
-    iptables -t mangle -A PREROUTING -p udp --dport 443 -j NFQUEUE --queue-num 1
-fi
-
-if ! curl -s -I -m 5 https://yandex.ru > /dev/null 2>&1 && ! curl -s -I -m 5 https://cloudflare.com > /dev/null 2>&1; then
-    nmcli con up "netplan-$NET_IFACE" > /dev/null 2>&1 || true
-    sleep 3
-    if ! curl -s -I -m 5 https://yandex.ru > /dev/null 2>&1; then
-        EXIT_CODE=1
+read -p "  Установить модуль прозрачного прокси Mihomo? (y/N): " INSTALL_MIHOMO
+if [[ "$INSTALL_MIHOMO" =~ ^[Yy]$ ]]; then
+    echo "  Установка Mihomo..."
+    if [ -f "./mihomo/install_mihomo.sh" ]; then
+        chmod +x ./mihomo/install_mihomo.sh
+        ./mihomo/install_mihomo.sh || echo -e "${YELLOW}  ⚠️  Установка Mihomo прервана или требует ручного ввода URL подписки.${NC}"
+    else
+        echo -e "${RED}  ✗ Скрипт mihomo/install_mihomo.sh не найден.${NC}"
     fi
 fi
 
-if [ $EXIT_CODE -eq 0 ]; then
-    echo -e "${GREEN}✅ Сеть проверена.${NC}" | tee -a $LOG_FILE
-else
-    echo -e "${RED}❌ Критические проблемы.${NC}" | tee -a $LOG_FILE
+read -p "  Установить TV Fix VPN (прозрачный VPN для Smart TV)? (y/N): " INSTALL_TVFIX
+if [[ "$INSTALL_TVFIX" =~ ^[Yy]$ ]]; then
+    echo "  Установка TV Fix VPN..."
+    if [ -f "./TV_FIX_VPN/install-tv-fix-vpn.sh" ]; then
+        chmod +x ./TV_FIX_VPN/install-tv-fix-vpn.sh
+        ./TV_FIX_VPN/install-tv-fix-vpn.sh || echo -e "${YELLOW}  ⚠️  Установка TV Fix прервана.${NC}"
+    else
+        echo -e "${RED}  ✗ Скрипт TV_FIX_VPN/install-tv-fix-vpn.sh не найден.${NC}"
+    fi
 fi
-exit $EXIT_CODE
-EOF
+echo -e "${GREEN}  ✓ Модули настроены${NC}"
 
-cat > /usr/local/bin/zalp-restart << 'EOF'
-#!/bin/bash
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-NC='\033[0m'
-echo "🔄 Начинаю безопасный перезапуск..."
-zalp-stop
-sudo zalp-doctor
-DOCTOR_EXIT_CODE=$?
-if [ $DOCTOR_EXIT_CODE -ne 0 ]; then
-    echo -e "${RED}❌ Ошибка Доктора. Запуск отменен.${NC}"
-    exit 1
-fi
-if ! curl -s -I -m 5 https://yandex.ru > /dev/null 2>&1; then
-    echo -e "${RED}❌ Нет интернета. Запуск отменен.${NC}"
-    exit 1
-fi
-zalp-start
-echo -e "${GREEN}🎉 Перезапуск завершен!${NC}"
-EOF
-
-cat > /usr/local/bin/zalp-check << 'EOF'
-#!/bin/bash
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m'
-echo "========================================="
-echo "  Zalp DPI Bypass - Диагностика"
-echo "  $(date '+%Y-%m-%d %H:%M:%S')"
-echo "========================================="
-echo "🔧 1. Статус nfqws:"
-if systemctl is-active --quiet nfqws; then
-    echo -e "   ✅ ${GREEN}Активен${NC}"
-else
-    echo -e "   ❌ ${RED}Не активен${NC}"
-fi
-echo "🌐 2. IP Forwarding:"
-if [ "$(sysctl -n net.ipv4.ip_forward)" = "1" ]; then
-    echo -e "   ✅ ${GREEN}Включен${NC}"
-else
-    echo -e "   ❌ ${RED}Выключен${NC}"
-fi
-echo "🔥 3. Правила mangle:"
-RULES=$(sudo iptables -t mangle -L PREROUTING -n | grep -c "NFQUEUE")
-if [ "$RULES" -ge 2 ]; then
-    echo -e "   ✅ ${GREEN}Найдено $RULES правил${NC}"
-else
-    echo -e "   ⚠️  ${YELLOW}Найдено $RULES правил${NC}"
-fi
-echo "🔄 4. NAT:"
-NAT=$(sudo iptables -t nat -L POSTROUTING -n | grep -c "MASQUERADE")
-if [ "$NAT" -gt 0 ]; then
-    echo -e "   ✅ ${GREEN}Настроен${NC}"
-else
-    echo -e "   ❌ ${RED}Не настроен${NC}"
-fi
-echo "🌍 5. Интернет:"
-if curl -s -I -m 3 https://google.com > /dev/null 2>&1; then
-    echo -e "   ✅ ${GREEN}Работает${NC}"
-else
-    echo -e "   ❌ ${RED}Нет доступа${NC}"
-fi
-echo "========================================="
-EOF
-
-cat > /usr/local/bin/zalp-status << 'EOF'
-#!/bin/bash
-echo ""
-echo "══════════ Zalp Status ══════════"
-if sudo iptables -t mangle -L 2>/dev/null | grep -q "NFQUEUE"; then
-    echo "  🟢 Обход DPI:    Активен"
-else
-    echo "  🔴 Обход DPI:    Не запущен"
-fi
-if systemctl is-active --quiet nfqws; then
-    echo "  🟢 NFQWS:        Активен"
-else
-    echo "  🔴 NFQWS:        Не активен"
-fi
-if systemctl is-active --quiet zalp-doctor.timer 2>/dev/null || grep -q "zalp-doctor" /var/spool/cron/crontabs/root 2>/dev/null; then
-    echo "  🟢 Доктор:       Активен"
-else
-    echo "  🔴 Доктор:       Не активен"
-fi
-echo ""
-echo "  Лог доктора (последние 3):"
-tail -3 /var/log/zalp-doctor.log 2>/dev/null | sed 's/^/    /'
-echo "═════════════════════════════════"
-EOF
-
-cat > /usr/local/bin/zalp-restore << 'EOF'
-#!/bin/bash
-echo "Восстановление Zalp..."
-zalp-restart
-echo "✓ Zalp восстановлен!"
-EOF
-
-chmod +x /usr/local/bin/zalp-start /usr/local/bin/zalp-stop /usr/local/bin/zalp-restart
-chmod +x /usr/local/bin/zalp-status /usr/local/bin/zalp-doctor /usr/local/bin/zalp-check
-chmod +x /usr/local/bin/zalp-restore
-
-# Консоль управления (берётся из папки с установщиком)
+# 6. Скрипты управления и консоль
+echo -e "${YELLOW}[6/6] Установка единой консоли управления и автозапуска...${NC}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Копируем единую консоль
 if [ -f "$SCRIPT_DIR/zalp-console.sh" ]; then
     cp "$SCRIPT_DIR/zalp-console.sh" /usr/local/bin/zalp
     chmod +x /usr/local/bin/zalp
-    echo -e "${GREEN}  ✓ Консоль управления установлена (команда: zalp)${NC}"
 fi
 
-# Версия продукта (для проверки обновлений)
-echo "4.1" > /opt/zalp/VERSION
+# Создаем алиасы для совместимости
+for cmd in start stop restart status check doctor restore test mihomo tvfix; do
+    echo -e "#!/bin/bash\nexec zalp \$@" > "/usr/local/bin/zalp-$cmd"
+    chmod +x "/usr/local/bin/zalp-$cmd"
+done
 
-echo -e "${GREEN}  ✓ Скрипты управления созданы${NC}"
+# Версия продукта
+echo "5.0" > /opt/zalp/VERSION
 
-# ── 6. Systemd + автозапуск ──
-echo -e "${YELLOW}[6/10] Настройка автозапуска...${NC}"
+# Автозапуск
 systemctl daemon-reload
 systemctl enable -q nfqws
+(crontab -l 2>/dev/null | grep -v "zalp-doctor"; echo "*/5 * * * * /usr/local/bin/zalp doctor >/dev/null 2>&1") | crontab -
 
-# Cron для доктора (каждые 5 минут)
-(crontab -l 2>/dev/null | grep -v "zalp-doctor"; echo "*/5 * * * * /usr/local/bin/zalp-doctor >/dev/null 2>&1") | crontab -
-echo -e "${GREEN}  ✓ Автозапуск настроен (systemd + cron)${NC}"
-
-# ── 7. IP Forwarding ──
-echo -e "${YELLOW}[7/10] Настройка IP Forwarding...${NC}"
+# IP Forwarding
 grep -qxF 'net.ipv4.ip_forward=1' /etc/sysctl.conf || echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf
 grep -qxF 'net.ipv6.conf.all.forwarding=1' /etc/sysctl.conf || echo 'net.ipv6.conf.all.forwarding=1' >> /etc/sysctl.conf
 sysctl -p > /dev/null 2>&1
-echo -e "${GREEN}  ✓ IP Forwarding включен${NC}"
 
-# ── 8. Запуск сервисов ──
-echo -e "${YELLOW}[8/10] Запуск сервисов...${NC}"
+# Запуск
 systemctl start nfqws
-/usr/local/bin/zalp-doctor || true
-/usr/local/bin/zalp-start
-echo -e "${GREEN}  ✓ Сервисы запущены${NC}"
+/usr/local/bin/zalp doctor || true
 
-# ── 9. Финальная проверка ──
-echo -e "${YELLOW}[9/10] Финальная проверка...${NC}"
-sleep 2
-/usr/local/bin/zalp-check
-
-# ── 10. Итог ──
-echo -e "${YELLOW}[10/10] Готово!${NC}"
-echo ""
 echo -e "${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║  ✓ Zalp v4.0 успешно установлен!                     ║${NC}"
+echo -e "${GREEN}║  ✓ Zalp v5.0 успешно установлен!                     ║${NC}"
 echo -e "${GREEN}╠══════════════════════════════════════════════════════╣${NC}"
-echo -e "${CYAN}║  Команды:                                            ║${NC}"
-echo -e "${CYAN}║    zalp-start     — запустить                        ║${NC}"
-echo -e "${CYAN}║    zalp-stop      — остановить                       ║${NC}"
-echo -e "${CYAN}║    zalp-restart   — безопасный перезапуск            ║${NC}"
-echo -e "${CYAN}║    zalp-status    — краткий статус                   ║${NC}"
-echo -e "${CYAN}║    zalp-check     — полная диагностика               ║${NC}"
-echo -e "${CYAN}║    zalp-doctor    — проверка и лечение               ║${NC}"
-echo -e "${CYAN}║    zalp-restore   — восстановление                   ║${NC}"
-echo -e "${CYAN}║                                                      ║${NC}"
+echo -e "${CYAN}║  Введите ${YELLOW}sudo zalp${CYAN} для открытия панели управления.      ║${NC}"
 echo -e "${CYAN}║  Автозапуск: systemd + cron (каждые 5 мин)           ║${NC}"
-echo -e "${CYAN}║  Сетевой интерфейс: ${NET_IFACE}${NC}"
-echo -e "${CYAN}║                                                      ║${NC}"
-echo -e "${CYAN}║  Для переустановки: ./restore.sh                     ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
-echo ""
-</file>
-
-<file path="README.md">
-# 🛡️ Zalp — Умный обход DPI для дома
-
-**Zalp** — это комплексная система обхода DPI-блокировок на базе [zapret](https://github.com/bol-van/zapret), оптимизированная для домашнего сервера-роутера. Включает автоматическое самолечение, мониторинг, консоль управления и горячую замену без разрыва интернета.
-
-## ✨ Возможности
-
-- 🚀 **Обход DPI** для YouTube, Instagram, Facebook, Threads и других сервисов
-- 🩺 **Автоматическое самолечение** (Zalp Doctor) каждые 5 минут
-- 🔥 **Горячая замена** — переустановка без разрыва интернета
-- 🎛️ **Консоль управления** (`zalp`) — все функции в одном меню
-- 📦 **Самообновление** — следит за новыми версиями на GitHub и обновляется в один пункт меню
-- 📊 **Расширенная диагностика** с проверкой всех компонентов
-- 🔄 **Автозапуск** через systemd + cron
-- 🌐 **Поддержка IPv4/IPv6** для консолей (Xbox, PlayStation)
-
-## 📁 Структура проекта
-
-```
-Zalp/
-├── README.md          # Документация (этот файл)
-├── install.sh         # Установщик (v4.1)
-├── restore.sh         # Восстановление с горячей заменой (v4.0)
-├── zalp-console.sh    # Консоль управления (v4.1)
-└── create_readme.sh   # Генератор этого README
-```
-
-## 🚀 Быстрый старт
-
-### Установка
-
-```bash
-# Клонируем репозиторий
-git clone https://github.com/MamBoota/Zalp.git
-cd Zalp
-
-# Запускаем установку
-sudo ./install.sh
-```
-
-Установщик автоматически:
-1. Проверит наличие предыдущей установки
-2. Установит все зависимости
-3. Соберёт движок из исходников
-4. Настроит автозапуск
-5. Установит консоль управления `zalp`
-
-### Переустановка (горячая замена)
-
-```bash
-sudo ./restore.sh
-```
-
-**Важно:** `restore.sh` полностью удаляет Zalp и переустанавливает его **без разрыва интернета**. Клиенты не заметят перебоев.
-
-## 🎛️ Консоль управления
-
-```bash
-zalp
-```
-
-Команда сама запросит sudo. Открывается панель с версией продукта, статусом компонентов и меню:
-
-| Пункт | Действие |
-|-------|----------|
-| 1 | Статус системы |
-| 2 | Полная диагностика |
-| 3 | Запустить обход |
-| 4 | Остановить обход |
-| 5 | Безопасный перезапуск |
-| 6 | Doctor (ручной запуск) |
-| 7 | Логи Doctor |
-| 8 | Проверить обновления |
-| 9 | Установить обновление |
-| 0 | Выход |
-
-Если на GitHub вышла новая версия — в панели загорится жёлтый аларм с номером доступной версии.
-
-## 📦 Обновление продукта
-
-Консоль сама следит за обновлениями:
-
-- Текущая версия хранится в `/opt/zalp/VERSION`
-- При старте консоли проверяются теги/релизы репозитория на GitHub (кэш проверки — 24 часа)
-- При обнаружении новой версии в панели появляется аларм
-- Пункт **9** скачивает новые `install.sh`, `restore.sh`, `zalp-console.sh` и запускает горячую замену через `restore.sh` — интернет не прерывается
-
-### Выпуск новой версии (для сопровождающего)
-
-```bash
-# 1. Поднять версию в install.sh (баннер и файл VERSION)
-# 2. Закоммитить изменения
-git add -A && git commit -m "v4.2: описание изменений"
-# 3. Создать тег и запушить
-git tag v4.2
-git push origin HEAD --tags
-```
-
-После этого все установленные копии увидят аларм об обновлении в консоли.
-
-## 🎮 Команды управления
-
-| Команда | Описание |
-|---------|----------|
-| `sudo zalp` | Консоль управления (меню) |
-| `sudo zalp-start` | Запустить обход DPI |
-| `sudo zalp-stop` | Остановить обход DPI |
-| `sudo zalp-restart` | Безопасный перезапуск (с проверкой интернета) |
-| `sudo zalp-status` | Краткий статус системы |
-| `sudo zalp-check` | Полная диагностика |
-| `sudo zalp-doctor` | Ручной запуск самолечения |
-| `sudo zalp-restore` | Восстановление конфигурации |
-
-## 🩺 Система самолечения (Zalp Doctor)
-
-**Zalp Doctor** автоматически проверяет систему каждые 5 минут:
-
-- ✅ Статус сервиса `nfqws`
-- ✅ Включён ли IP forwarding
-- ✅ Отсутствие дубликатов правил NAT
-- ✅ Наличие правил NFQUEUE
-- ✅ Доступность интернета
-- ✅ Автоматическое переподключение сети при проблемах
-
-Лог работы: `/var/log/zalp-doctor.log`
-
-## 🔧 Конфигурация
-
-### Списки доменов
-
-Файлы конфигурации находятся в `/opt/zalp/`:
-
-- `domains.txt` — список доменов для обхода DPI
-- `domains-exclude.txt` — исключения (корпоративные сервисы)
-
-### Стратегия обхода
-
-Текущая стратегия в `/etc/systemd/system/nfqws.service`:
-
-```bash
---dpi-desync=fakedsplit
---dpi-desync-split-pos=1
---dpi-desync-autottl
---dpi-desync-fooling=badseq
---dpi-desync-repeats=2
-```
-
-Оптимизирована для стриминга видео (4K, Shorts, Reels) с минимальными задержками.
-
-## 🔍 Подбор стратегии
-
-Если обход перестал работать, используйте встроенный инструмент `blockcheck.sh`:
-
-```bash
-cd /opt/zalp
-sudo ./blockcheck.sh
-```
-
-Следуйте инструкциям:
-1. Введите домен для теста (например, `www.youtube.com`)
-2. Выберите `standard` режим
-3. Дождитесь окончания (5-10 минут)
-4. Найдите строку `--- WORKING strategy for nfqws: ...`
-5. Обновите параметры в `/etc/systemd/system/nfqws.service`
-6. Перезапустите: `sudo zalp-restart`
-
-## 📋 Требования
-
-- **ОС:** Ubuntu 20.04+ / Debian 11+
-- **Права:** root (sudo)
-- **Сеть:** сервер должен работать как роутер (IP forwarding)
-- **Зависимости:** устанавливаются автоматически
-
-## 🌐 Настройка клиентов
-
-Чтобы клиенты (телефоны, ноутбуки, ТВ) использовали Zalp:
-
-1. Подключите их к Wi-Fi/Ethernet вашего сервера
-2. В настройках сети укажите:
-   - **Шлюз (Gateway):** IP вашего сервера
-   - **DNS:** IP вашего сервера (или любой публичный DNS)
-
-Пример для роутера:
-```
-Шлюз: 192.168.1.50
-DNS: 192.168.1.50
-```
-
-## 🎮 Поддержка консолей (Xbox, PlayStation)
-
-Для Xbox и PlayStation рекомендуется настроить **прямое подключение** к основному роутеру (шлюз = основной роутер), чтобы избежать Double NAT.
-
-## 📝 Логи
-
-- `/var/log/zalp-doctor.log` — лог работы Doctor
-- `/var/log/zalp-install.log` — лог установки
-
-## 🐛 Troubleshooting
-
-### Обход не работает
-
-1. Откройте консоль: `sudo zalp` → пункт 2 (диагностика)
-2. Проверьте статус: `sudo zalp-status`
-3. Проверьте логи: `tail -f /var/log/zalp-doctor.log`
-4. Попробуйте перезапуск: `sudo zalp-restart`
-5. Если не помогло — запустите `blockcheck.sh` для подбора стратегии
-
-### Нет интернета после установки
-
-1. Остановите обход: `sudo zalp-stop`
-2. Проверьте интернет
-3. Если работает — проблема в стратегии обхода
-4. Запустите `blockcheck.sh` для подбора рабочей стратегии
-
-### Переустановка
-
-```bash
-sudo ./restore.sh
-```
-
-Это полностью очистит систему и переустановит Zalp без разрыва интернета.
-
-## 📄 Лицензия
-
-Этот проект использует [zapret](https://github.com/bol-van/zapret) (MIT License).
-
-## 🤝 Вклад
-
-Проблемы и предложения приветствуются в Issues!
-
----
-
-**Автор:** [MamBoota](https://github.com/MamBoota)
-**Версия:** 4.1
-**Дата:** Октябрь 2026
 </file>
 
 </files>

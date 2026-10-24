@@ -4,6 +4,8 @@
 ## Get latest from https://github.com/github/gitignore/blob/main/VisualStudio.gitignore
 
 repomix.config.json
+repomix-output.xml
+create_readme.sh
 
 # User-specific files
 *.rsuser
