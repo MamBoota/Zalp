@@ -1,6 +1,6 @@
 #!/bin/bash
 # ╔══════════════════════════════════════════════════════╗
-# ║           Zalp Installer v5.1 (Unified)              ║
+# ║           Zalp Installer v5.2 (Unified)              ║
 # ║     DPI Bypass + Mihomo + TV Fix + Doctor            ║
 # ╚══════════════════════════════════════════════════════╝
 set -e
@@ -12,12 +12,15 @@ RED='\033[0;31m'
 NC='\033[0m'
 LOG=/var/log/zalp-install.log
 
+# Определяем SCRIPT_DIR сразу, чтобы он был доступен везде
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
 : > "$LOG"
 exec > >(tee -a "$LOG") 2>&1
 trap 'echo -e "${RED}✗ Скрипт упал на строке $LINENO! Лог: $LOG${NC}"' ERR
 
 echo -e "${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║           Zalp Installer v5.1 (Unified)              ║${NC}"
+echo -e "${GREEN}║           Zalp Installer v5.2 (Unified)              ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
 
 if [ "$EUID" -ne 0 ]; then
@@ -57,8 +60,18 @@ fi
 ./install_bin.sh || true
 echo -e "${GREEN}  ✓ Движок собран и установлен${NC}"
 
-# 3. Конфигурации доменов
-echo -e "${YELLOW}[3/6] Применение конфигураций доменов...${NC}"
+# 3. Конфигурации доменов и TV MACs
+echo -e "${YELLOW}[3/6] Настройка конфигураций (Домены + TV MACs)...${NC}"
+
+# Копируем tv_macs.conf из репозитория (используем -f для гарантированной перезаписи шаблона)
+if [ -f "$SCRIPT_DIR/tv_macs.conf" ]; then
+    cp -f "$SCRIPT_DIR/tv_macs.conf" /opt/zalp/tv_macs.conf
+    echo -e "${GREEN}  ✓ Конфиг TV MACs скопирован из репозитория${NC}"
+else
+    echo -e 'SERVER_IP="auto"\n\n# 74:E6:B8:06:CD:8A\n# 04:B9:E3:4A:3C:EC' > /opt/zalp/tv_macs.conf
+    echo -e "${YELLOW}  ⚠️  Создан шаблон /opt/zalp/tv_macs.conf. Заполните его MAC-адресами.${NC}"
+fi
+
 cat > /opt/zalp/domains.txt << 'EOF'
 youtube.com
 youtubei.googleapis.com
@@ -118,17 +131,14 @@ echo -e "${YELLOW}[5/6] Настройка дополнительных моду
 INSTALL_MIHOMO="N"
 INSTALL_TVFIX="N"
 
-# Получаем абсолютный путь к директории, в которой находится текущий скрипт
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-
 read -p "  Установить модуль прозрачного прокси Mihomo? (y/N): " INSTALL_MIHOMO
 if [[ "$INSTALL_MIHOMO" =~ ^[Yy]$ ]]; then
     echo "  Установка Mihomo..."
     if [ -f "$SCRIPT_DIR/mihomo/install_mihomo.sh" ]; then
         chmod +x "$SCRIPT_DIR/mihomo/install_mihomo.sh"
-        "$SCRIPT_DIR/mihomo/install_mihomo.sh" || echo -e "${YELLOW}  ⚠️  Установка Mihomo прервана или требует ручного ввода URL подписки.${NC}"
+        "$SCRIPT_DIR/mihomo/install_mihomo.sh" || echo -e "${YELLOW}  ⚠️  Установка Mihomo прервана.${NC}"
     else
-        echo -e "${RED}  ✗ Скрипт $SCRIPT_DIR/mihomo/install_mihomo.sh не найден.${NC}"
+        echo -e "${RED}  ✗ Скрипт mihomo/install_mihomo.sh не найден.${NC}"
     fi
 fi
 
@@ -139,7 +149,7 @@ if [[ "$INSTALL_TVFIX" =~ ^[Yy]$ ]]; then
         chmod +x "$SCRIPT_DIR/TV_FIX_VPN/install-tv-fix-vpn.sh"
         "$SCRIPT_DIR/TV_FIX_VPN/install-tv-fix-vpn.sh" || echo -e "${YELLOW}  ⚠️  Установка TV Fix прервана.${NC}"
     else
-        echo -e "${RED}  ✗ Скрипт $SCRIPT_DIR/TV_FIX_VPN/install-tv-fix-vpn.sh не найден.${NC}"
+        echo -e "${RED}  ✗ Скрипт TV_FIX_VPN/install-tv-fix-vpn.sh не найден.${NC}"
     fi
 fi
 
@@ -147,39 +157,32 @@ echo -e "${GREEN}  ✓ Модули настроены${NC}"
 
 # 6. Скрипты управления и консоль
 echo -e "${YELLOW}[6/6] Установка единой консоли управления и автозапуска...${NC}"
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Копируем единую консоль
 if [ -f "$SCRIPT_DIR/zalp-console.sh" ]; then
     cp "$SCRIPT_DIR/zalp-console.sh" /usr/local/bin/zalp
     chmod +x /usr/local/bin/zalp
 fi
 
-# Создаем алиасы для совместимости
 for cmd in start stop restart status check doctor restore test mihomo tvfix; do
     echo -e "#!/bin/bash\nexec zalp \$@" > "/usr/local/bin/zalp-$cmd"
     chmod +x "/usr/local/bin/zalp-$cmd"
 done
 
-# Версия продукта
-echo "5.1" > /opt/zalp/VERSION
+echo "5.2" > /opt/zalp/VERSION
 
-# Автозапуск
 systemctl daemon-reload
 systemctl enable -q nfqws
 (crontab -l 2>/dev/null | grep -v "zalp-doctor"; echo "*/5 * * * * /usr/local/bin/zalp doctor >/dev/null 2>&1") | crontab -
 
-# IP Forwarding
 grep -qxF 'net.ipv4.ip_forward=1' /etc/sysctl.conf || echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf
 grep -qxF 'net.ipv6.conf.all.forwarding=1' /etc/sysctl.conf || echo 'net.ipv6.conf.all.forwarding=1' >> /etc/sysctl.conf
 sysctl -p > /dev/null 2>&1
 
-# Запуск
 systemctl start nfqws
 /usr/local/bin/zalp doctor || true
 
 echo -e "${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║  ✓ Zalp v5.0 успешно установлен!                     ║${NC}"
+echo -e "${GREEN}║  ✓ Zalp v5.2 успешно установлен!                     ║${NC}"
 echo -e "${GREEN}╠══════════════════════════════════════════════════════╣${NC}"
 echo -e "${CYAN}║  Введите ${YELLOW}sudo zalp${CYAN} для открытия панели управления.      ║${NC}"
 echo -e "${CYAN}║  Автозапуск: systemd + cron (каждые 5 мин)           ║${NC}"

@@ -1,6 +1,6 @@
 #!/bin/bash
 # ╔══════════════════════════════════════════════════════╗
-# ║           Zalp Restore v5.1 (Hot Swap)               ║
+# ║           Zalp Restore v5.2 (Hot Swap)               ║
 # ║     Полная очистка + переустановка (без разрыва)     ║
 # ╚══════════════════════════════════════════════════════╝
 set -e
@@ -12,7 +12,7 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 echo -e "${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║           Zalp Restore v5.1 (Hot Swap)               ║${NC}"
+echo -e "${GREEN}║           Zalp Restore v5.2 (Hot Swap)               ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
 
 if [ "$EUID" -ne 0 ]; then
@@ -43,7 +43,6 @@ fi
 if [ "$SKIP_CLEANUP" -eq 0 ]; then
     echo -e "${YELLOW}[2/4] Горячее отключение модулей (без разрыва интернета)...${NC}"
     
-    # 1. Отключение Zalp (самое важное для сохранения интернета)
     iptables -t mangle -D PREROUTING -j ZALP_DPI 2>/dev/null || true
     ip6tables -t mangle -D PREROUTING -j ZALP_DPI 2>/dev/null || true
     iptables -t mangle -F ZALP_DPI 2>/dev/null || true
@@ -52,16 +51,13 @@ if [ "$SKIP_CLEANUP" -eq 0 ]; then
     ip6tables -t mangle -X ZALP_DPI 2>/dev/null || true
     systemctl stop nfqws 2>/dev/null || true
 
-    # 2. Отключение TV Fix (если есть)
     if command -v fix &> /dev/null; then fix stop 2>/dev/null || true; fi
     iptables -t mangle -F TV_VPN_FIX 2>/dev/null || true
     iptables -t nat -F TV_VPN_FIX 2>/dev/null || true
 
-    # 3. Отключение Mihomo (если есть)
     if command -v mihomo-stop &> /dev/null; then mihomo-stop 2>/dev/null || true; fi
     systemctl stop mihomo 2>/dev/null || true
 
-    # 4. Восстановление базового роутинга (гарантия, что интернет не пропадет)
     NET_IFACE=$(ip route | grep default | awk '{print $5}' | head -1)
     [ -z "$NET_IFACE" ] && NET_IFACE="eth0"
     sysctl -w net.ipv4.ip_forward=1 > /dev/null
@@ -71,6 +67,10 @@ if [ "$SKIP_CLEANUP" -eq 0 ]; then
     echo -e "${GREEN}  ✓ Модули отключены, интернет работает напрямую${NC}"
 
     echo -e "${YELLOW}[3/4] Полная очистка файлов и конфигов Zalp...${NC}"
+    echo -e "${YELLOW}  💾 Сохранение конфигурации TV MACs...${NC}"
+    # Сохраняем ПЕРЕД удалением
+    cp -f /opt/zalp/tv_macs.conf /tmp/tv_macs.conf.bak 2>/dev/null || true
+    
     rm -rf /opt/zalp
     rm -f /etc/systemd/system/nfqws.service
     rm -f /usr/local/bin/zalp /usr/local/bin/zalp-*
@@ -86,7 +86,7 @@ else
     echo -e "${YELLOW}[3/4] Пропуск очистки${NC}"
 fi
 
-echo -e "${YELLOW}[4/4] Запуск установки Zalp v5.1...${NC}"
+echo -e "${YELLOW}[4/4] Запуск установки Zalp v5.2...${NC}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 INSTALL_SCRIPT=""
 
@@ -103,4 +103,23 @@ fi
 
 echo -e "${GREEN}  ✓ Найден install.sh: $INSTALL_SCRIPT${NC}"
 echo ""
-exec "$INSTALL_SCRIPT"
+
+# ВАЖНО: используем bash, а не exec, чтобы скрипт продолжил работу после установки
+bash "$INSTALL_SCRIPT"
+
+# 🔄 ВОССТАНОВЛЕНИЕ КОНФИГА ПОСЛЕ УСПЕШНОЙ УСТАНОВКИ
+# СТАЛО (умное восстановление):
+if [ -f /tmp/tv_macs.conf.bak ]; then
+    # Проверяем, есть ли в бэкапе хоть один MAC-адрес (ищем символ ":")
+    if grep -q ":" /tmp/tv_macs.conf.bak; then
+        echo -e "${YELLOW}  🔄 Восстановление пользовательских TV MACs из резервной копии...${NC}"
+        cp -f /tmp/tv_macs.conf.bak /opt/zalp/tv_macs.conf
+        if command -v fix &> /dev/null; then
+            fix restart
+        fi
+        echo -e "${GREEN}  ✓ Конфигурация TV MACs успешно восстановлена!${NC}"
+    else
+        echo -e "${CYAN}  ℹ️  Резервная копия TV MACs пуста, используем актуальный файл из репозитория.${NC}"
+    fi
+    rm -f /tmp/tv_macs.conf.bak
+fi

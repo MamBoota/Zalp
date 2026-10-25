@@ -10,7 +10,17 @@ set -e
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
 NC='\033[0m'
+
+# Функция для определения ожидаемой позиции
+get_expected_pos() {
+    if iptables -t mangle -L PREROUTING -n | grep -q "TV_VPN_FIX"; then
+        echo 2
+    else
+        echo 1
+    fi
+}
 
 echo -e "${YELLOW}[TEST] Проверка пограничных случаев...${NC}"
 
@@ -52,9 +62,10 @@ if ! iptables -t mangle -C PREROUTING -j ZALP_DPI >/dev/null 2>&1; then
     exit 1
 fi
 
-FIRST_RULE=$(iptables -t mangle -L PREROUTING -n --line-numbers | grep -E "^\s*1\s+" | head -1)
-if ! echo "$FIRST_RULE" | grep -q "ZALP_DPI"; then
-    echo -e "${RED}✗ FAIL: После zalp start правила ZALP_DPI не на позиции 1${NC}"
+EXPECTED_POS=$(get_expected_pos)
+ACTUAL_POS=$(iptables -t mangle -L PREROUTING -n --line-numbers | grep "ZALP_DPI" | awk '{print $1}')
+if [ "$ACTUAL_POS" != "$EXPECTED_POS" ]; then
+    echo -e "${RED}✗ FAIL: После zalp start правила ZALP_DPI на позиции $ACTUAL_POS (ожидалось: $EXPECTED_POS)${NC}"
     exit 1
 fi
 
@@ -64,9 +75,10 @@ systemctl restart nfqws
 sleep 2
 /usr/local/bin/zalp doctor >/dev/null 2>&1
 
-FIRST_RULE=$(iptables -t mangle -L PREROUTING -n --line-numbers | grep -E "^\s*1\s+" | head -1)
-if ! echo "$FIRST_RULE" | grep -q "ZALP_DPI"; then
-    echo -e "${RED}✗ FAIL: После перезапуска nfqws правила ZALP_DPI не на позиции 1${NC}"
+EXPECTED_POS=$(get_expected_pos)
+ACTUAL_POS=$(iptables -t mangle -L PREROUTING -n --line-numbers | grep "ZALP_DPI" | awk '{print $1}')
+if [ "$ACTUAL_POS" != "$EXPECTED_POS" ]; then
+    echo -e "${RED}✗ FAIL: После перезапуска nfqws правила ZALP_DPI на позиции $ACTUAL_POS (ожидалось: $EXPECTED_POS)${NC}"
     exit 1
 fi
 

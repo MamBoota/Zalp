@@ -1,6 +1,6 @@
 #!/bin/bash
 # ╔══════════════════════════════════════════════════════╗
-# ║        Zalp Unified Management Console v5.1          ║
+# ║        Zalp Unified Management Console v5.2          ║
 # ║     С исправленной логикой iptables (Anti-Mihomo)    ║
 # ╚══════════════════════════════════════════════════════╝
 
@@ -52,15 +52,15 @@ apply_zalp_rules() {
     ip6tables -t mangle -A ZALP_DPI -p tcp --dport 443 -j NFQUEUE --queue-num 1
     ip6tables -t mangle -A ZALP_DPI -p udp --dport 443 -j NFQUEUE --queue-num 1
 
-    # 4. ГАРАНТИРОВАННО удаляем ВСЕ упоминания прыжка в ZALP_DPI из PREROUTING (цикл удаляет дубликаты)
+    # 4. ГАРАНТИРОВАННО удаляем ВСЕ упоминания прыжка в ZALP_DPI из PREROUTING
     while iptables -t mangle -D PREROUTING -j ZALP_DPI 2>/dev/null; do :; done
     while ip6tables -t mangle -D PREROUTING -j ZALP_DPI 2>/dev/null; do :; done
 
-    # 5. Вставляем прыжок СТРОГО на первую позицию (теперь он точно будет один)
-    iptables -t mangle -I PREROUTING 1 -j ZALP_DPI
-    ip6tables -t mangle -I PREROUTING 1 -j ZALP_DPI
+    # 5. Вставляем прыжок СТРОГО на вторую позицию (оставляя первую для TV_VPN_FIX, если он есть)
+    iptables -t mangle -I PREROUTING 2 -j ZALP_DPI
+    ip6tables -t mangle -I PREROUTING 2 -j ZALP_DPI
     
-    echo -e "${GREEN}  ✓ Правила iptables корректно установлены на позицию 1${NC}"
+    echo -e "${GREEN}  ✓ Правила iptables корректно установлены (Zalp на позиции 2, изоляция сохранена)${NC}"
 }
 
 remove_zalp_rules() {
@@ -126,7 +126,7 @@ do_update() {
 show_banner() {
     clear
     echo -e "${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║         Zalp Unified Console v5.1 (Fixed IPT)        ║${NC}"
+    echo -e "${GREEN}║         Zalp Unified Console v5.2 (Fixed IPT)        ║${NC}"
     echo -e "${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
     echo -e "  Версия продукта: ${CYAN}v$CURRENT_VERSION${NC}"
     
