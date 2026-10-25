@@ -235,3 +235,46 @@ echo "*/5 * * * * curl -s -m 5 -x http://127.0.0.1:7890 http://www.gstatic.com/g
 echo "✅ Установка и настройка полностью завершены."
 echo "💡 Используй команды: mihomo-start, mihomo-stop, mihomo-restart, mihomo-test"
 echo "=========================================================="
+
+# ═══════════════════════════════════════════════════════
+# Интеграция с Zalp: защита от конфликта iptables
+# ═══════════════════════════════════════════════════════
+
+echo -e "${CYAN}[Mihomo] Настройка интеграции с Zalp...${NC}"
+
+# 1. Создаем systemd drop-in override для mihomo.service
+# Это гарантирует, что Mihomo запускается ПОСЛЕ nfqws (Zalp)
+mkdir -p /etc/systemd/system/mihomo.service.d
+
+cat > /etc/systemd/system/mihomo.service.d/zalp-override.conf << 'EOF'
+[Unit]
+# Mihomo запускается строго после Zalp (nfqws)
+After=network.target nfqws.service
+Wants=nfqws.service
+
+[Service]
+# После запуска Mihomo, принудительно восстанавливаем правила Zalp
+ExecStartPost=/bin/bash -c 'sleep 2 && /usr/local/bin/zalp doctor >/dev/null 2>&1 || true'
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+echo -e "${GREEN}  ✓ Создан systemd override для mihomo.service${NC}"
+
+# 2. Перезагружаем systemd, чтобы применить изменения
+systemctl daemon-reload
+
+# 3. Если Mihomo уже запущен, перезапускаем его с новыми настройками
+if systemctl is-active --quiet mihomo 2>/dev/null; then
+    echo -e "${YELLOW}  ⚠️  Mihomo уже запущен. Перезапуск с новыми настройками...${NC}"
+    systemctl restart mihomo
+fi
+
+# 4. Запускаем Zalp Doctor, чтобы убедиться, что правила на месте
+if [ -x /usr/local/bin/zalp ]; then
+    echo -e "${CYAN}[Mihomo] Запуск Zalp Doctor для проверки правил...${NC}"
+    /usr/local/bin/zalp doctor >/dev/null 2>&1 || true
+fi
+
+echo -e "${GREEN}  ✓ Интеграция с Zalp завершена${NC}"

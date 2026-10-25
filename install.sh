@@ -1,6 +1,6 @@
 #!/bin/bash
 # ╔══════════════════════════════════════════════════════╗
-# ║           Zalp Installer v5.0 (Unified)              ║
+# ║           Zalp Installer v5.1 (Unified)              ║
 # ║     DPI Bypass + Mihomo + TV Fix + Doctor            ║
 # ╚══════════════════════════════════════════════════════╝
 set -e
@@ -17,7 +17,7 @@ exec > >(tee -a "$LOG") 2>&1
 trap 'echo -e "${RED}✗ Скрипт упал на строке $LINENO! Лог: $LOG${NC}"' ERR
 
 echo -e "${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║           Zalp Installer v5.0 (Unified)              ║${NC}"
+echo -e "${GREEN}║           Zalp Installer v5.1 (Unified)              ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
 
 if [ "$EUID" -ne 0 ]; then
@@ -162,7 +162,7 @@ for cmd in start stop restart status check doctor restore test mihomo tvfix; do
 done
 
 # Версия продукта
-echo "5.0" > /opt/zalp/VERSION
+echo "5.1" > /opt/zalp/VERSION
 
 # Автозапуск
 systemctl daemon-reload
