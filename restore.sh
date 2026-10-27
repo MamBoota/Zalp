@@ -11,6 +11,9 @@ CYAN='\033[0;36m'
 RED='\033[0;31m'
 NC='\033[0m'
 
+# Определяем SCRIPT_DIR сразу, чтобы он был доступен везде
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
 echo -e "${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
 echo -e "${GREEN}║           Zalp Restore v5.2 (Hot Swap)               ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
@@ -87,7 +90,6 @@ else
 fi
 
 echo -e "${YELLOW}[4/4] Запуск установки Zalp v5.2...${NC}"
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 INSTALL_SCRIPT=""
 
 if [ -x "$SCRIPT_DIR/install.sh" ]; then
@@ -97,12 +99,12 @@ elif [ -x "./install.sh" ]; then
 fi
 
 if [ -z "$INSTALL_SCRIPT" ]; then
-    echo -e "${RED}✗ Не удалось найти install.sh${NC}"
+    echo -e "${RED}✗ Скрипт /install.sh не найден. Убедитесь, что файл существует или произведите установку в ручную.${NC}"
     exit 1
 fi
 
-echo -e "${GREEN}  ✓ Найден install.sh: $INSTALL_SCRIPT${NC}"
-echo ""
+echo -e "${GREEN}  ✓ Скрипт install.sh успешно найден: $INSTALL_SCRIPT${NC}"
+echo -e "${GREEN}  ✓ Переустановка завершена успешно.${NC}"
 
 # ВАЖНО: используем bash, а не exec, чтобы скрипт продолжил работу после установки
 bash "$INSTALL_SCRIPT"

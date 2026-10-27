@@ -69,6 +69,12 @@ apply_rules() {
         mac_upper=$(echo "$line" | tr 'a-z' 'A-Z' | tr -d '\r')
         [ -z "$mac_upper" ] && continue
 
+        # Валидация формата MAC-адреса
+        if [[ ! "$mac_upper" =~ ^([0-9A-F]{2}:){5}[0-9A-F]{2}$ ]]; then
+            echo "    ⚠️ Пропуск некорректного MAC: $line"
+            continue
+        fi
+
         echo "  ↳ Настройка для MAC: $mac_upper"
 
         # 1. Блокировка обходных путей (QUIC, DoH)

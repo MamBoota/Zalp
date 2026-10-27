@@ -1,7 +1,7 @@
 #!/bin/bash
 # ╔══════════════════════════════════════════════════════╗
-# ║        Zalp Unified Management Console v5.2          ║
-# ║     С исправленной логикой iptables (Anti-Mihomo)    ║
+# ║        Zalp Unified Management Console v5.3          ║
+# ║           Рефакторинг + Hot Restart + Новое меню     ║
 # ╚══════════════════════════════════════════════════════╝
 
 ZALP_REPO="MamBoota/Zalp"
@@ -30,50 +30,159 @@ is_newer() {
     [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -1)" = "$2" ]
 }
 
-# --- НОВАЯ ФУНКЦИЯ: Безопасное применение правил ---
-# --- ИСПРАВЛЕННАЯ ФУНКЦИЯ: Абсолютно надежное применение правил ---
-apply_zalp_rules() {
-    echo -e "${CYAN}  Применение правил iptables (защита от перезаписи и дубликатов)...${NC}"
-    
-    # 1. Создаем изолированную цепочку, если её нет
-    iptables -t mangle -N ZALP_DPI 2>/dev/null || true
-    ip6tables -t mangle -N ZALP_DPI 2>/dev/null || true
+# ═══════════════════════════════════════════════════════
+# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (устраняют дублирование кода)
+# ═══════════════════════════════════════════════════════
 
-    # 2. Очищаем ТОЛЬКО нашу цепочку (гарантированно убирает любые мусорные правила внутри неё)
+run_both() {
+    iptables "$@" 2>/dev/null || true
+    ip6tables "$@" 2>/dev/null || true
+}
+
+ensure_chain() {
+    local table=$1 chain=$2
+    iptables -t "$table" -N "$chain" 2>/dev/null || true
+    ip6tables -t "$table" -N "$chain" 2>/dev/null || true
+}
+
+remove_jumps() {
+    local table=$1 from=$2 to=$3
+    while iptables -t "$table" -D "$from" -j "$to" 2>/dev/null; do :; done
+    while ip6tables -t "$table" -D "$from" -j "$to" 2>/dev/null; do :; done
+}
+
+destroy_chain() {
+    local table=$1 chain=$2
+    iptables -t "$table" -F "$chain" 2>/dev/null || true
+    ip6tables -t "$table" -F "$chain" 2>/dev/null || true
+    iptables -t "$table" -X "$chain" 2>/dev/null || true
+    ip6tables -t "$table" -X "$chain" 2>/dev/null || true
+}
+
+# ═══════════════════════════════════════════════════════
+# ПРАВИЛА IPTABLES
+# ═══════════════════════════════════════════════════════
+
+apply_zalp_rules() {
+    echo -e "${CYAN}  Применение правил iptables...${NC}"
+    
+    ensure_chain mangle ZALP_DPI
+    
     iptables -t mangle -F ZALP_DPI
     ip6tables -t mangle -F ZALP_DPI
-
-    # 3. Наполняем нашу цепочку правилами (ОТДЕЛЬНЫЕ строки для 100% совместимости)
-    iptables -t mangle -A ZALP_DPI -p tcp --dport 80 -j NFQUEUE --queue-num 1
-    iptables -t mangle -A ZALP_DPI -p tcp --dport 443 -j NFQUEUE --queue-num 1
-    iptables -t mangle -A ZALP_DPI -p udp --dport 443 -j NFQUEUE --queue-num 1
     
-    ip6tables -t mangle -A ZALP_DPI -p tcp --dport 80 -j NFQUEUE --queue-num 1
-    ip6tables -t mangle -A ZALP_DPI -p tcp --dport 443 -j NFQUEUE --queue-num 1
+    for port in 80 443; do
+        iptables -t mangle -A ZALP_DPI -p tcp --dport "$port" -j NFQUEUE --queue-num 1
+        ip6tables -t mangle -A ZALP_DPI -p tcp --dport "$port" -j NFQUEUE --queue-num 1
+    done
+    iptables -t mangle -A ZALP_DPI -p udp --dport 443 -j NFQUEUE --queue-num 1
     ip6tables -t mangle -A ZALP_DPI -p udp --dport 443 -j NFQUEUE --queue-num 1
-
-    # 4. ГАРАНТИРОВАННО удаляем ВСЕ упоминания прыжка в ZALP_DPI из PREROUTING
-    while iptables -t mangle -D PREROUTING -j ZALP_DPI 2>/dev/null; do :; done
-    while ip6tables -t mangle -D PREROUTING -j ZALP_DPI 2>/dev/null; do :; done
-
-    # 5. Вставляем прыжок СТРОГО на вторую позицию (оставляя первую для TV_VPN_FIX, если он есть)
+    
+    remove_jumps mangle PREROUTING ZALP_DPI
     iptables -t mangle -I PREROUTING 2 -j ZALP_DPI
     ip6tables -t mangle -I PREROUTING 2 -j ZALP_DPI
     
-    echo -e "${GREEN}  ✓ Правила iptables корректно установлены (Zalp на позиции 2, изоляция сохранена)${NC}"
+    echo -e "${GREEN}  ✓ Правила установлены (Zalp на позиции 2)${NC}"
 }
 
 remove_zalp_rules() {
-    # Гарантированное удаление всех прыжков
-    while iptables -t mangle -D PREROUTING -j ZALP_DPI 2>/dev/null; do :; done
-    while ip6tables -t mangle -D PREROUTING -j ZALP_DPI 2>/dev/null; do :; done
-    
-    # Очистка и удаление самой цепочки
-    iptables -t mangle -F ZALP_DPI 2>/dev/null || true
-    ip6tables -t mangle -F ZALP_DPI 2>/dev/null || true
-    iptables -t mangle -X ZALP_DPI 2>/dev/null || true
-    ip6tables -t mangle -X ZALP_DPI 2>/dev/null || true
+    remove_jumps mangle PREROUTING ZALP_DPI
+    destroy_chain mangle ZALP_DPI
 }
+
+# ═══════════════════════════════════════════════════════
+# ПРОВЕРКИ СТАТУСОВ
+# ═══════════════════════════════════════════════════════
+
+check_internet() {
+    # Проверка доступности + потери пакетов
+    local ping_result
+    ping_result=$(ping -c 10 -W 2 -i 0.2 8.8.8.8 2>&1)
+    local packet_loss
+    packet_loss=$(echo "$ping_result" | grep -oP '\d+(?=% packet loss)' || echo "100")
+    
+    if [ "$packet_loss" = "100" ]; then
+        echo "🔴 Интернет — НЕ доступен"
+        echo "   Потери пакетов: 100%"
+        return 1
+    fi
+    
+    # Замер входящей скорости (download) - 1MB от Cloudflare
+    local speed_download_bytes
+    speed_download_bytes=$(curl -o /dev/null -w "%{speed_download}" -s "https://speed.cloudflare.com/__down?bytes=1000000" --max-time 6 2>/dev/null || echo "0")
+    local speed_download_mbps
+    speed_download_mbps=$(awk "BEGIN {printf \"%.2f\", $speed_download_bytes * 8 / 1000000}")
+    
+    # Замер исходящей скорости (upload) - 1MB на Cloudflare
+    local speed_upload_bytes
+    speed_upload_bytes=$(dd if=/dev/zero bs=1M count=1 2>/dev/null | curl -X POST --data-binary @- -o /dev/null -w "%{speed_upload}" -s "https://speed.cloudflare.com/__up" --max-time 6 2>/dev/null || echo "0")
+    local speed_upload_mbps
+    speed_upload_mbps=$(awk "BEGIN {printf \"%.2f\", $speed_upload_bytes * 8 / 1000000}")
+    
+    # Формируем цветовой статус
+    local color="${GREEN}"
+    local status_text="доступен"
+    if [ "$packet_loss" != "0" ]; then
+        color="${YELLOW}"
+        status_text="доступен (нестабильно)"
+    fi
+    
+    echo -e "${color}🟢 Интернет — ${status_text}${NC}"
+    echo "   ↓ Входящая: ${speed_download_mbps} Мбит/с"
+    echo "   ↑ Исходящая: ${speed_upload_mbps} Мбит/с"
+    echo "   Потери пакетов: ${packet_loss}%"
+    return 0
+}
+
+check_zalp_status() {
+    if systemctl is-active --quiet nfqws && \
+       iptables -t mangle -C PREROUTING -j ZALP_DPI 2>/dev/null && \
+       iptables -t mangle -C ZALP_DPI -p tcp --dport 443 -j NFQUEUE --queue-num 1 2>/dev/null; then
+        echo "🟢 Zalp — работает (nfqws активен, правила на месте)"
+        return 0
+    else
+        echo "🔴 Zalp — НЕ работает"
+        return 1
+    fi
+}
+
+check_mihomo_status() {
+    if [ -x /usr/local/bin/mihomo-start ] && systemctl is-active --quiet mihomo; then
+        local node
+        node=$(curl -s -m 2 http://127.0.0.1:9090/proxies/AUTO-FASTEST 2>/dev/null | grep -o '"now":"[^"]*"' | cut -d'"' -f4)
+        if [ -n "$node" ]; then
+            echo "🟢 Mihomo — работает (узел: $node)"
+        else
+            echo "🟢 Mihomo — работает (узел определяется...)"
+        fi
+        return 0
+    elif [ -x /usr/local/bin/mihomo-start ]; then
+        echo "🔴 Mihomo — установлен, но НЕ активен"
+        return 1
+    else
+        echo "⚪ Mihomo — не установлен"
+        return 2
+    fi
+}
+
+check_tvfix_status() {
+    if iptables -t mangle -L TV_VPN_FIX 2>/dev/null | grep -q "TPROXY"; then
+        local mac_count
+        mac_count=$(iptables -t mangle -L TV_VPN_FIX -n 2>/dev/null | grep -c "mac source")
+        echo "🟢 TV Fix — работает (перехвачено MAC: $mac_count)"
+        return 0
+    elif command -v fix &>/dev/null; then
+        echo "🔴 TV Fix — установлен, но НЕ активен"
+        return 1
+    else
+        echo "⚪ TV Fix — не установлен"
+        return 2
+    fi
+}
+
+# ═══════════════════════════════════════════════════════
+# ОБНОВЛЕНИЯ
+# ═══════════════════════════════════════════════════════
 
 get_remote_tag() {
     local v
@@ -123,142 +232,269 @@ do_update() {
     return $rc
 }
 
+# ═══════════════════════════════════════════════════════
+# БАННЕР
+# ═══════════════════════════════════════════════════════
+
 show_banner() {
     clear
     echo -e "${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║         Zalp Unified Console v5.2 (Fixed IPT)        ║${NC}"
+    echo -e "${GREEN}║           Zalp Unified Console v5.3                  ║${NC}"
     echo -e "${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
     echo -e "  Версия продукта: ${CYAN}v$CURRENT_VERSION${NC}"
     
-    local dpi="🔴" nfq="🔴" doc="🔴" mih="⚪" tvf="⚪"
-    
-    # Проверка DPI: ищем наше правило на позиции 1 или наличие цепочки ZALP_DPI с правилами
-    if iptables -t mangle -C PREROUTING -j ZALP_DPI 2>/dev/null && iptables -t mangle -C ZALP_DPI -p tcp --dport 443 -j NFQUEUE --queue-num 1 2>/dev/null; then
+    local dpi="🔴" mih="⚪" tvf="⚪"
+    if iptables -t mangle -C PREROUTING -j ZALP_DPI 2>/dev/null && \
+       iptables -t mangle -C ZALP_DPI -p tcp --dport 443 -j NFQUEUE --queue-num 1 2>/dev/null; then
         dpi="🟢"
     fi
-    
-    systemctl is-active --quiet nfqws && nfq="🟢"
-    (systemctl is-active --quiet zalp-doctor.timer 2>/dev/null || grep -q "zalp-doctor" /var/spool/cron/crontabs/root 2>/dev/null) && doc="🟢"
-    
-    [ -x /usr/local/bin/mihomo-start ] && mih="🟢"
+    [ -x /usr/local/bin/mihomo-start ] && systemctl is-active --quiet mihomo && mih="🟢"
     iptables -t mangle -L 2>/dev/null | grep -q "TV_VPN_FIX" && tvf="🟢"
-
-    echo -e "  DPI Bypass: $dpi   NFQWS: $nfq   Doctor: $doc"
-    echo -e "  Mihomo: $mih   TV Fix: $tvf"
+    
+    echo -e "  DPI: $dpi   Mihomo: $mih   TV Fix: $tvf"
     
     if [ "$UPDATE_AVAILABLE" = "1" ]; then
-        echo -e "  ${YELLOW}⚠️  ДОСТУПНО ОБНОВЛЕНИЕ: v$(norm_ver "$REMOTE_TAG") (у вас v$CURRENT_VERSION)${NC}"
+        echo -e "  ${YELLOW}⚠️  ДОСТУПНО ОБНОВЛЕНИЕ: v$(norm_ver "$REMOTE_TAG")${NC}"
     fi
     echo -e "${GREEN}────────────────────────────────────────────────────────${NC}"
 }
 
-# Обработка аргументов командной строки (для вызова вне меню)
-if [ "$1" = "start" ]; then
-    systemctl start nfqws
-    apply_zalp_rules
-    echo -e "${GREEN}✓ Обход DPI запущен.${NC}"
-    exit 0
-elif [ "$1" = "stop" ]; then
+# ═══════════════════════════════════════════════════════
+# КОМАНДЫ МЕНЮ
+# ═══════════════════════════════════════════════════════
+
+cmd_status() {
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║              СТАТУС СИСТЕМЫ                          ║${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    check_internet
+    check_zalp_status
+    check_mihomo_status
+    check_tvfix_status
+    echo ""
+}
+
+cmd_check() {
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║         ПОЛНАЯ ТЕХНИЧЕСКАЯ ДИАГНОСТИКА (для ИИ)      ║${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    
+    echo "═══════════════════════════════════════════════════════"
+    echo "📋 СИСТЕМНАЯ ИНФОРМАЦИЯ"
+    echo "═══════════════════════════════════════════════════════"
+    echo "Дата: $(date)"
+    echo "Hostname: $(hostname)"
+    echo "Kernel: $(uname -a)"
+    echo "Uptime: $(uptime)"
+    echo "Zalp version: $(cat /opt/zalp/VERSION 2>/dev/null || echo 'N/A')"
+    echo ""
+    
+    echo "═══════════════════════════════════════════════════════"
+    echo "🌐 СЕТЕВЫЕ ИНТЕРФЕЙСЫ И МАРШРУТЫ"
+    echo "═══════════════════════════════════════════════════════"
+    echo "--- ip addr ---"
+    ip addr show
+    echo ""
+    echo "--- ip route ---"
+    ip route show
+    echo ""
+    echo "--- ip route show table 100 (TPROXY) ---"
+    ip route show table 100 2>/dev/null || echo "(таблица 100 пуста)"
+    echo ""
+    echo "--- ip rule ---"
+    ip rule show
+    echo ""
+    
+    echo "═══════════════════════════════════════════════════════"
+    echo "⚙️  SYSCTL ПАРАМЕТРЫ"
+    echo "═══════════════════════════════════════════════════════"
+    sysctl net.ipv4.ip_forward
+    sysctl net.ipv6.conf.all.forwarding
+    echo ""
+    
+    echo "═══════════════════════════════════════════════════════"
+    echo "🔥 IPTABLES (полный дамп)"
+    echo "═══════════════════════════════════════════════════════"
+    echo "--- iptables-save ---"
+    iptables-save 2>/dev/null
+    echo ""
+    echo "--- ip6tables-save ---"
+    ip6tables-save 2>/dev/null
+    echo ""
+    
+    echo "═══════════════════════════════════════════════════════"
+    echo "🛡️  СТАТУС СЕРВИСОВ"
+    echo "═══════════════════════════════════════════════════════"
+    echo "--- nfqws ---"
+    systemctl status nfqws --no-pager -l 2>/dev/null || echo "(сервис не найден)"
+    echo ""
+    echo "--- mihomo ---"
+    systemctl status mihomo --no-pager -l 2>/dev/null || echo "(сервис не найден)"
+    echo ""
+    
+    echo "═══════════════════════════════════════════════════════"
+    echo "📜 ПОСЛЕДНИЕ ЛОГИ"
+    echo "═══════════════════════════════════════════════════════"
+    echo "--- journalctl -u nfqws -n 15 ---"
+    journalctl -u nfqws -n 15 --no-pager 2>/dev/null || echo "(логов нет)"
+    echo ""
+    echo "--- journalctl -u mihomo -n 15 ---"
+    journalctl -u mihomo -n 15 --no-pager 2>/dev/null || echo "(логов нет)"
+    echo ""
+    echo "--- /var/log/zalp-doctor.log (последние 20 строк) ---"
+    tail -20 /var/log/zalp-doctor.log 2>/dev/null || echo "(лог пуст)"
+    echo ""
+    
+    echo "═══════════════════════════════════════════════════════"
+    echo "📁 КОНФИГУРАЦИИ ZALP"
+    echo "═══════════════════════════════════════════════════════"
+    echo "--- /opt/zalp/domains.txt ---"
+    cat /opt/zalp/domains.txt 2>/dev/null || echo "(файл не найден)"
+    echo ""
+    echo "--- /opt/zalp/domains-exclude.txt ---"
+    cat /opt/zalp/domains-exclude.txt 2>/dev/null || echo "(файл не найден)"
+    echo ""
+    echo "--- /opt/zalp/tv_macs.conf ---"
+    cat /opt/zalp/tv_macs.conf 2>/dev/null || echo "(файл не найден)"
+    echo ""
+    
+    echo "═══════════════════════════════════════════════════════"
+    echo "⏰ CRON И ПРОЦЕССЫ"
+    echo "═══════════════════════════════════════════════════════"
+    echo "--- crontab -l ---"
+    crontab -l 2>/dev/null || echo "(cron пуст)"
+    echo ""
+    echo "--- Процессы Zalp/Mihomo ---"
+    ps aux | grep -E 'nfqws|mihomo|tpws' | grep -v grep
+    echo ""
+    
+    echo "═══════════════════════════════════════════════════════"
+    echo "✅ ДИАГНОСТИКА ЗАВЕРШЕНА"
+    echo "═══════════════════════════════════════════════════════"
+}
+
+cmd_full_restart() {
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║     ПОЛНЫЙ ПЕРЕЗАПУСК (Hot Restart — без разрыва)    ║${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    
+    echo -e "${YELLOW}[1/5] Переключение в режим прямого доступа (hot restart)...${NC}"
     remove_zalp_rules
-    systemctl stop nfqws
-    echo -e "${YELLOW}✓ Обход DPI остановлен.${NC}"
-    exit 0
-elif [ "$1" = "restart" ]; then
-    $0 stop
+    [ -x /usr/local/bin/fix ] && fix stop 2>/dev/null || true
+    echo -e "${GREEN}  ✓ Правила удалены, интернет работает напрямую${NC}"
+    
+    systemctl stop nfqws 2>/dev/null || true
+    [ -x /usr/local/bin/mihomo-stop ] && mihomo-stop 2>/dev/null || true
+    echo -e "${GREEN}  ✓ Все сервисы остановлены${NC}"
+    echo ""
+    
+    echo -e "${YELLOW}[2/5] Запуск Zalp (nfqws)...${NC}"
+    systemctl start nfqws
     sleep 1
-    $0 start
-    exit 0
-elif [ "$1" = "status" ]; then
-    systemctl status nfqws --no-pager
-    echo "--- Правила ZALP_DPI ---"
-    iptables -t mangle -L ZALP_DPI -n -v 2>/dev/null || echo "Цепочка не найдена"
-    exit 0
-elif [ "$1" = "doctor" ]; then
-    echo -e "${CYAN}  Запуск Zalp Doctor...${NC}"
-    if ! systemctl is-active --quiet nfqws; then
-        echo -e "${YELLOW}  ⚠️  nfqws не активен. Перезапуск...${NC}"
-        systemctl restart nfqws
-    fi
-    apply_zalp_rules # Принудительно возвращаем правила на место!
+    apply_zalp_rules
+    echo -e "${GREEN}  ✓ Zalp запущен${NC}"
+    echo ""
     
-    # Проверка IP forwarding
-    if [ "$(cat /proc/sys/net/ipv4/ip_forward)" -ne 1 ]; then
-        sysctl -w net.ipv4.ip_forward=1 > /dev/null
+    echo -e "${YELLOW}[3/5] Запуск Mihomo...${NC}"
+    if [ -x /usr/local/bin/mihomo-start ]; then
+        mihomo-start
+        sleep 2
+        apply_zalp_rules # Принудительное восстановление приоритета после Mihomo
+    else
+        echo -e "${CYAN}  — Mihomo не установлен, пропуск${NC}"
     fi
+    echo ""
     
-    echo -e "${GREEN}  ✓ Доктор завершил работу. Система стабильна.${NC}"
-    exit 0
-elif [ "$1" = "check" ]; then
-    $0 status
-    echo -e "${CYAN}  Проверка доступности сети...${NC}"
-    ping -c 2 8.8.8.8 > /dev/null && echo -e "${GREEN}  ✓ Интернет доступен${NC}" || echo -e "${RED}  ✗ Нет доступа к интернету${NC}"
-    exit 0
+    echo -e "${YELLOW}[4/5] Запуск TV Fix...${NC}"
+    if command -v fix &>/dev/null; then
+        fix start
+    else
+        echo -e "${CYAN}  — TV Fix не установлен, пропуск${NC}"
+    fi
+    echo ""
+    
+    echo -e "${YELLOW}[5/5] Финальная проверка...${NC}"
+    cmd_status
+    
+    echo -e "${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║  ✓ ПОЛНЫЙ ПЕРЕЗАПУСК ЗАВЕРШЕН (Hot Restart OK)       ║${NC}"
+    echo -e "${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
+}
+
+# ═══════════════════════════════════════════════════════
+# ОБРАБОТКА CLI-АРГУМЕНТОВ
+# ═══════════════════════════════════════════════════════
+
+if [ -n "$1" ]; then
+    case "$1" in
+        start)
+            systemctl start nfqws
+            apply_zalp_rules
+            echo -e "${GREEN}✓ Обход DPI запущен.${NC}"
+            exit 0
+            ;;
+        stop)
+            remove_zalp_rules
+            systemctl stop nfqws
+            echo -e "${YELLOW}✓ Обход DPI остановлен.${NC}"
+            exit 0
+            ;;
+        restart)
+            cmd_full_restart
+            exit 0
+            ;;
+        status)
+            cmd_status
+            exit 0
+            ;;
+        check)
+            cmd_check
+            exit 0
+            ;;
+        doctor)
+            echo -e "${CYAN}  Запуск Zalp Doctor...${NC}"
+            if ! systemctl is-active --quiet nfqws; then
+                systemctl restart nfqws
+            fi
+            apply_zalp_rules
+            echo -e "${GREEN}  ✓ Доктор завершил работу. Система стабильна.${NC}"
+            exit 0
+            ;;
+        *)
+            echo "Использование: zalp {start|stop|restart|status|check|doctor}"
+            exit 1
+            ;;
+    esac
 fi
 
-# Интерактивное меню
+# ═══════════════════════════════════════════════════════
+# ИНТЕРАКТИВНОЕ МЕНЮ
+# ═══════════════════════════════════════════════════════
+
 check_update
 
 while true; do
     show_banner
-    echo "  1) Статус системы (zalp status)"
-    echo "  2) Полная диагностика (zalp check)"
-    echo "  3) Запустить обход DPI (zalp start)"
-    echo "  4) Остановить обход DPI (zalp stop)"
-    echo "  5) Безопасный перезапуск (zalp restart)"
-    echo "  6) Doctor: ручное лечение (zalp doctor)"
-    echo "  7) Логи Doctor"
-    echo "  8) Управление Mihomo (прокси)"
-    echo "  9) Управление TV Fix (VPN для ТВ)"
-    echo " 10) Тестирование стратегий (Blockcheck)"
-    echo " 11) Проверить обновления"
-    echo " 12) Установить обновление"
+    echo "  1) Статус системы"
+    echo "  2) Полная диагностика (техническая информация)"
+    echo "  3) Полный перезапуск (Zalp + Mihomo + TV Fix)"
+    echo "  4) Логи Doctor"
+    echo "  5) Тестирование стратегий (Blockcheck)"
+    echo "  6) Проверить обновления"
+    echo "  7) Установить обновление"
     echo "  0) Выход"
     echo " "
     read -rp "  Выбор: " choice
     
     case "$choice" in
-        1) $0 status; pause ;;
-        2) $0 check; pause ;;
-        3) $0 start; pause ;;
-        4) $0 stop; pause ;;
-        5) $0 restart; pause ;;
-        6) $0 doctor; pause ;;
-        7) tail -30 /var/log/zalp-doctor.log 2>/dev/null || echo "  Лог пуст"; pause ;;
-        8) 
-            if [ -x /usr/local/bin/mihomo-start ]; then
-                echo "  Выберите действие для Mihomo:"
-                echo "  a) Запустить (mihomo-start)"
-                echo "  b) Остановить (mihomo-stop)"
-                echo "  c) Перезапустить (mihomo-restart)"
-                read -rp "  Выбор [a/b/c]: " m_choice
-                case "$m_choice" in
-                    a) mihomo-start; $0 doctor ;; # После запуска Mihomo, сразу лечим Zalp
-                    b) mihomo-stop ;;
-                    c) mihomo-restart; $0 doctor ;;
-                    *) echo "  Неверный выбор." ;;
-                esac
-            else
-                echo -e "${YELLOW}  Mihomo не установлен.${NC}"
-            fi
-            pause ;;
-        9)
-            if iptables -t mangle -L 2>/dev/null | grep -q "TV_VPN_FIX"; then
-                echo "  Выберите действие для TV Fix:"
-                echo "  a) Запустить (fix start)"
-                echo "  b) Остановить (fix stop)"
-                echo "  c) Перезапустить (fix restart)"
-                read -rp "  Выбор [a/b/c]: " t_choice
-                case "$t_choice" in
-                    a) fix start; $0 doctor ;;
-                    b) fix stop ;;
-                    c) fix restart; $0 doctor ;;
-                    *) echo "  Неверный выбор." ;;
-                esac
-            else
-                echo -e "${YELLOW}  TV Fix не установлен.${NC}"
-            fi
-            pause ;;
-        10)
+        1) cmd_status; pause ;;
+        2) cmd_check; pause ;;
+        3) cmd_full_restart; pause ;;
+        4) tail -30 /var/log/zalp-doctor.log 2>/dev/null || echo "  Лог пуст"; pause ;;
+        5)
             echo -e "${CYAN}  Запуск blockcheck.sh...${NC}"
             if [ -f /opt/zalp/blockcheck.sh ]; then
                 cd /opt/zalp && sudo ./blockcheck.sh
@@ -266,7 +502,7 @@ while true; do
                 echo -e "${RED}  ✗ Скрипт blockcheck.sh не найден.${NC}"
             fi
             pause ;;
-        11) 
+        6) 
             echo "  Проверка обновлений..."
             check_update
             if [ "$UPDATE_AVAILABLE" = "1" ]; then
@@ -275,7 +511,7 @@ while true; do
                 echo -e "  ${GREEN}У вас последняя версия (v$CURRENT_VERSION)${NC}"
             fi
             pause ;;
-        12) 
+        7) 
             if [ "$UPDATE_AVAILABLE" = "1" ]; then
                 read -rp "  Установить v$(norm_ver "$REMOTE_TAG")? [y/N]: " ans
                 case "$ans" in

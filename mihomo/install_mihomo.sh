@@ -18,7 +18,33 @@ systemctl daemon-reload
 echo "[2/7] Загрузка и установка Mihomo..."
 mkdir -p /opt/mihomo /etc/mihomo/providers
 cd /opt/mihomo
-wget -q -O mihomo.gz https://github.com/MetaCubeX/mihomo/releases/download/v1.19.33/mihomo-linux-amd64-compatible-v1.19.33.gz
+
+# Автоопределение архитектуры
+ARCH=$(uname -m)
+case "$ARCH" in
+    x86_64)
+        MIHOMO_BIN="mihomo-linux-amd64-compatible"
+        ;;
+    aarch64|arm64)
+        MIHOMO_BIN="mihomo-linux-arm64"
+        ;;
+    armv7l|armhf)
+        MIHOMO_BIN="mihomo-linux-armv7"
+        ;;
+    armv6l|armv5tel)
+        MIHOMO_BIN="mihomo-linux-armv5"
+        ;;
+    *)
+        echo "❌ Неподдерживаемая архитектура: $ARCH"
+        echo "   Поддерживаются: x86_64, aarch64/arm64, armv7, armv5"
+        exit 1
+        ;;
+esac
+
+MIHOMO_VERSION="v1.19.33"
+echo "  ✓ Определена архитектура: $ARCH → $MIHOMO_BIN"
+
+wget -q -O mihomo.gz "https://github.com/MetaCubeX/mihomo/releases/download/$MIHOMO_VERSION/$MIHOMO_BIN-$MIHOMO_VERSION.gz"
 gzip -d mihomo.gz
 mv mihomo /usr/local/bin/mihomo
 chmod +x /usr/local/bin/mihomo
@@ -33,9 +59,16 @@ echo "   (Например: https://example.com/sub/abcdef)"
 echo "----------------------------------------------------------"
 read -p "👉 URL подписки: " SUBSCRIPTION_URL
 
-# Проверка на пустоту
-while [ -z "$SUBSCRIPTION_URL" ]; do
-    echo "❌ URL не может быть пустым! Введите ссылку заново."
+# Проверка формата URL
+while true; do
+    if [ -z "$SUBSCRIPTION_URL" ]; then
+        echo "❌ URL не может быть пустым!"
+    elif [[ ! "$SUBSCRIPTION_URL" =~ ^https?:// ]]; then
+        echo "❌ URL должен начинаться с http:// или https://"
+        echo "   Получено: $SUBSCRIPTION_URL"
+    else
+        break
+    fi
     read -p "👉 URL подписки: " SUBSCRIPTION_URL
 done
 
