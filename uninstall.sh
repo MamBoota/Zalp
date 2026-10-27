@@ -40,15 +40,33 @@ echo -e "${GREEN}  ✓ Найдено $TRACES следов установки${N
 # ── 2. Остановка сервисов (без разрыва интернета) ──
 echo -e "${YELLOW}[2/7] Остановка сервисов Zalp...${NC}"
 
-# 2.1 Сначала убираем ТОЛЬКО правила NFQUEUE (обход DPI)
-# Это мгновенно отключает обход, но интернет продолжает работать
-echo -e "${CYAN}  → Отключение обхода DPI (NFQUEUE)...${NC}"
-iptables -t mangle -F PREROUTING 2>/dev/null || true
-iptables -t mangle -F OUTPUT 2>/dev/null || true
-ip6tables -t mangle -F PREROUTING 2>/dev/null || true
-ip6tables -t mangle -F OUTPUT 2>/dev/null || true
+# 2.1 Полное удаление всех следов Zalp и TV Fix из iptables
+echo -e "${CYAN}  → Удаление правил Zalp и TV Fix (без затрагивания сторонних сервисов)...${NC}"
 
-# 2.2 Останавливаем сервис nfqws
+# 1. Удаляем ВСЕ прыжки в цепочки Zalp из PREROUTING (и mangle, и nat)
+for table in mangle nat; do
+    while iptables -t $table -D PREROUTING -j ZALP_DPI 2>/dev/null; do :; done
+    while ip6tables -t $table -D PREROUTING -j ZALP_DPI 2>/dev/null; do :; done
+    while iptables -t $table -D PREROUTING -j TV_VPN_FIX 2>/dev/null; do :; done
+    while ip6tables -t $table -D PREROUTING -j TV_VPN_FIX 2>/dev/null; do :; done
+done
+
+# 2. Агрессивно очищаем и удаляем сами цепочки Zalp и TV Fix
+for chain in ZALP_DPI TV_VPN_FIX; do
+    # Очистка содержимого
+    iptables -t mangle -F $chain 2>/dev/null || true
+    ip6tables -t mangle -F $chain 2>/dev/null || true
+    iptables -t nat -F $chain 2>/dev/null || true
+    ip6tables -t nat -F $chain 2>/dev/null || true
+    
+    # Удаление самих цепочек
+    iptables -t mangle -X $chain 2>/dev/null || true
+    ip6tables -t mangle -X $chain 2>/dev/null || true
+    iptables -t nat -X $chain 2>/dev/null || true
+    ip6tables -t nat -X $chain 2>/dev/null || true
+done
+
+# 3. Останавливаем сервисы
 echo -e "${CYAN}  → Остановка сервиса nfqws...${NC}"
 systemctl stop nfqws 2>/dev/null || true
 systemctl disable nfqws 2>/dev/null || true
@@ -134,11 +152,13 @@ echo -e "${CYAN}║    • Cron-задача Doctor                             
 echo -e "${CYAN}║    • Команды управления zalp-*                       ║${NC}"
 echo -e "${CYAN}║    • Логи /var/log/zalp-*.log                        ║${NC}"
 echo -e "${CYAN}║    • Правила NFQUEUE в iptables/ip6tables            ║${NC}"
+echo -e "${CYAN}║    • Цепочки ZALP_DPI и TV_VPN_FIX                   ║${NC}"
 echo -e "${CYAN}║                                                      ║${NC}"
 echo -e "${CYAN}║  Что НЕ было изменено (осталось как было):           ║${NC}"
 echo -e "${CYAN}║    • IP forwarding в /etc/sysctl.conf                ║${NC}"
 echo -e "${CYAN}║    • Базовый NAT и FORWARD (роутинг работает)        ║${NC}"
 echo -e "${CYAN}║    • Сетевые интерфейсы                              ║${NC}"
+echo -e "${CYAN}║    • Сторонние правила iptables (Docker и др.)       ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
 echo ""
 echo -e "${YELLOW}💡 Для полной переустановки выполни: ${CYAN}sudo ./install.sh${NC}"

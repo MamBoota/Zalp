@@ -1,6 +1,6 @@
 #!/bin/bash
 # ╔══════════════════════════════════════════════════════╗
-# ║           Zalp Installer v5.2 (Unified)              ║
+# ║           Zalp Installer v5.3 (Unified)              ║
 # ║     DPI Bypass + Mihomo + TV Fix + Doctor            ║
 # ╚══════════════════════════════════════════════════════╝
 set -e
@@ -15,12 +15,28 @@ LOG=/var/log/zalp-install.log
 # Определяем SCRIPT_DIR сразу, чтобы он был доступен везде
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# Функция валидации ввода Y/N
+validate_yn_input() {
+    local prompt="$1"
+    local result_var="$2"
+    
+    while true; do
+        read -p "$prompt" answer
+        if [[ "$answer" =~ ^[YyNn]$ ]]; then
+            eval "$result_var='$answer'"
+            return 0
+        else
+            echo -e "${RED}  ✗ Ошибка: введите только Y или N${NC}"
+        fi
+    done
+}
+
 : > "$LOG"
 exec > >(tee -a "$LOG") 2>&1
 trap 'echo -e "${RED}✗ Скрипт упал на строке $LINENO! Лог: $LOG${NC}"' ERR
 
 echo -e "${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║           Zalp Installer v5.2 (Unified)              ║${NC}"
+echo -e "${GREEN}║           Zalp Installer v5.3 (Unified)              ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
 
 if [ "$EUID" -ne 0 ]; then
@@ -63,12 +79,17 @@ echo -e "${GREEN}  ✓ Движок собран и установлен${NC}"
 # 3. Конфигурации доменов и TV MACs
 echo -e "${YELLOW}[3/6] Настройка конфигураций (Домены + TV MACs)...${NC}"
 
-# Копируем tv_macs.conf из репозитория (используем -f для гарантированной перезаписи шаблона)
 if [ -f "$SCRIPT_DIR/tv_macs.conf" ]; then
     cp -f "$SCRIPT_DIR/tv_macs.conf" /opt/zalp/tv_macs.conf
     echo -e "${GREEN}  ✓ Конфиг TV MACs скопирован из репозитория${NC}"
 else
-    echo -e 'SERVER_IP="auto"\n\n# 74:E6:B8:06:CD:8A\n# 04:B9:E3:4A:3C:EC' > /opt/zalp/tv_macs.conf
+    cat > /opt/zalp/tv_macs.conf << 'EOF'
+SERVER_IP="auto"
+
+# 74:E6:B8:06:CD:8A # LG WebOS 3-й этаж
+# 04:B9:E3:4A:3C:EC # Samsung 2-й этаж
+# 04:B9:E3:4A:3C:EC # Samsung 4-й этаж
+EOF
     echo -e "${YELLOW}  ⚠️  Создан шаблон /opt/zalp/tv_macs.conf. Заполните его MAC-адресами.${NC}"
 fi
 
@@ -105,7 +126,7 @@ prof.itstorm.ru
 v8.1c.ru
 vokino.tv
 EOF
-echo -e "${GREEN}  ✓ Конфиги доменов применены${NC}"
+echo -e "${GREEN}  ✓ Конфиги доменов и TV MACs применены${NC}"
 
 # 4. Systemd-сервис nfqws
 echo -e "${YELLOW}[4/6] Создание systemd-сервиса nfqws...${NC}"
@@ -128,30 +149,40 @@ echo -e "${GREEN}  ✓ Сервис nfqws создан${NC}"
 
 # 5. Опциональные модули (Mihomo и TV Fix)
 echo -e "${YELLOW}[5/6] Настройка дополнительных модулей...${NC}"
-INSTALL_MIHOMO="N"
-INSTALL_TVFIX="N"
 
-read -p "  Установить модуль прозрачного прокси Mihomo? (y/N): " INSTALL_MIHOMO
+validate_yn_input "  Установить модуль прозрачного прокси Mihomo? (Y/N): " INSTALL_MIHOMO
+
 if [[ "$INSTALL_MIHOMO" =~ ^[Yy]$ ]]; then
     echo "  Установка Mihomo..."
     if [ -f "$SCRIPT_DIR/mihomo/install_mihomo.sh" ]; then
         chmod +x "$SCRIPT_DIR/mihomo/install_mihomo.sh"
-        "$SCRIPT_DIR/mihomo/install_mihomo.sh" || echo -e "${YELLOW}  ⚠️  Установка Mihomo прервана.${NC}"
+        if "$SCRIPT_DIR/mihomo/install_mihomo.sh"; then
+            echo -e "${GREEN}  ✓ Mihomo успешно установлен.${NC}"
+        else
+            echo -e "${YELLOW}  ⚠️  Установка Mihomo прервана или завершилась с ошибкой.${NC}"
+        fi
     else
         echo -e "${RED}  ✗ Скрипт mihomo/install_mihomo.sh не найден.${NC}"
     fi
 fi
 
-read -p "  Установить TV Fix VPN (прозрачный VPN для Smart TV)? (y/N): " INSTALL_TVFIX
+validate_yn_input "  Установить TV Fix VPN (прозрачный VPN для Smart TV)? (Y/N): " INSTALL_TVFIX
+
 if [[ "$INSTALL_TVFIX" =~ ^[Yy]$ ]]; then
     echo "  Установка TV Fix VPN..."
     if [ -f "$SCRIPT_DIR/TV_FIX_VPN/install-tv-fix-vpn.sh" ]; then
         chmod +x "$SCRIPT_DIR/TV_FIX_VPN/install-tv-fix-vpn.sh"
-        "$SCRIPT_DIR/TV_FIX_VPN/install-tv-fix-vpn.sh" || echo -e "${YELLOW}  ⚠️  Установка TV Fix прервана.${NC}"
+        if "$SCRIPT_DIR/TV_FIX_VPN/install-tv-fix-vpn.sh"; then
+            echo -e "${GREEN}  ✓ TV Fix VPN успешно установлен.${NC}"
+        else
+            echo -e "${YELLOW}  ⚠️  Установка TV Fix прервана или завершилась с ошибкой.${NC}"
+        fi
     else
         echo -e "${RED}  ✗ Скрипт TV_FIX_VPN/install-tv-fix-vpn.sh не найден.${NC}"
     fi
 fi
+
+echo -e "${GREEN}  ✓ Модули настроены${NC}"
 
 echo -e "${GREEN}  ✓ Модули настроены${NC}"
 
@@ -168,7 +199,7 @@ for cmd in start stop restart status check doctor restore test mihomo tvfix; do
     chmod +x "/usr/local/bin/zalp-$cmd"
 done
 
-echo "5.2" > /opt/zalp/VERSION
+echo "5.3" > /opt/zalp/VERSION
 
 systemctl daemon-reload
 systemctl enable -q nfqws
@@ -182,7 +213,7 @@ systemctl start nfqws
 /usr/local/bin/zalp doctor || true
 
 echo -e "${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║  ✓ Zalp v5.2 успешно установлен!                     ║${NC}"
+echo -e "${GREEN}║  ✓ Zalp v5.3 успешно установлен!                     ║${NC}"
 echo -e "${GREEN}╠══════════════════════════════════════════════════════╣${NC}"
 echo -e "${CYAN}║  Введите ${YELLOW}sudo zalp${CYAN} для открытия панели управления.      ║${NC}"
 echo -e "${CYAN}║  Автозапуск: systemd + cron (каждые 5 мин)           ║${NC}"
