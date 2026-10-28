@@ -95,14 +95,14 @@ remove_zalp_rules() {
 # ═══════════════════════════════════════════════════════
 
 check_internet() {
-    # Проверка доступности + потери пакетов
+    # Проверка доступности + потери пакетов (прямой канал)
     local ping_result
     ping_result=$(ping -c 10 -W 2 -i 0.2 8.8.8.8 2>&1)
     local packet_loss
     packet_loss=$(echo "$ping_result" | grep -oP '\d+(?=% packet loss)' || echo "100")
     
     if [ "$packet_loss" = "100" ]; then
-        echo "🔴 Интернет — НЕ доступен"
+        echo "🔴 Интернет (провайдер) — НЕ доступен"
         echo "   Потери пакетов: 100%"
         return 1
     fi
@@ -127,10 +127,48 @@ check_internet() {
         status_text="доступен (нестабильно)"
     fi
     
-    echo -e "${color}🟢 Интернет — ${status_text}${NC}"
+    echo -e "${color}🟢 Интернет (провайдер) — ${status_text}${NC}"
     echo "   ↓ Входящая: ${speed_download_mbps} Мбит/с"
     echo "   ↑ Исходящая: ${speed_upload_mbps} Мбит/с"
     echo "   Потери пакетов: ${packet_loss}%"
+    return 0
+}
+
+check_vpn_status() {
+    # Проверяем, запущен ли Mihomo
+    if [ ! -x /usr/local/bin/mihomo-start ] || ! systemctl is-active --quiet mihomo; then
+        echo "⚪ VPN (Mihomo) — не активен"
+        return 1
+    fi
+    
+    # Получаем имя активного узла
+    local node
+    node=$(curl -s -m 2 http://127.0.0.1:9090/proxies/AUTO-FASTEST 2>/dev/null | grep -o '"now":"[^"]*"' | cut -d'"' -f4)
+    if [ -z "$node" ]; then
+        node="не определен"
+    fi
+    
+    # Замер скорости через VPN (прокси 127.0.0.1:7890)
+    local speed_download_bytes
+    speed_download_bytes=$(curl -o /dev/null -w "%{speed_download}" -s -x http://127.0.0.1:7890 "https://speed.cloudflare.com/__down?bytes=1000000" --max-time 8 2>/dev/null || echo "0")
+    local speed_download_mbps
+    speed_download_mbps=$(awk "BEGIN {printf \"%.2f\", $speed_download_bytes * 8 / 1000000}")
+    
+    local speed_upload_bytes
+    speed_upload_bytes=$(dd if=/dev/zero bs=1M count=1 2>/dev/null | curl -X POST --data-binary @- -o /dev/null -w "%{speed_upload}" -s -x http://127.0.0.1:7890 "https://speed.cloudflare.com/__up" --max-time 8 2>/dev/null || echo "0")
+    local speed_upload_mbps
+    speed_upload_mbps=$(awk "BEGIN {printf \"%.2f\", $speed_upload_bytes * 8 / 1000000}")
+    
+    # Замер пинга через VPN (время отклика)
+    local ping_time
+    ping_time=$(curl -o /dev/null -s -w "%{time_starttransfer}" -x http://127.0.0.1:7890 "https://www.google.com" --max-time 5 2>/dev/null || echo "0")
+    local ping_ms
+    ping_ms=$(awk "BEGIN {printf \"%.0f\", $ping_time * 1000}")
+    
+    echo "🟢 VPN (Mihomo → ${node})"
+    echo "   ↓ Входящая: ${speed_download_mbps} Мбит/с"
+    echo "   ↑ Исходящая: ${speed_upload_mbps} Мбит/с"
+    echo "   Пинг: ${ping_ms} мс"
     return 0
 }
 
@@ -269,8 +307,10 @@ cmd_status() {
     echo -e "${CYAN}╚══════════════════════════════════════════════════════╝${NC}"
     echo ""
     check_internet
+    echo ""
+    check_vpn_status
+    echo ""
     check_zalp_status
-    check_mihomo_status
     check_tvfix_status
     echo ""
 }
